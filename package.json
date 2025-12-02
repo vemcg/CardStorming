@@ -7,10 +7,15 @@
     "start": "node server.js",
     "dev": "node server.js"
   },
-  "keywords": ["collaboration", "brainstorming", "workspace"],
+  "keywords": [
+    "collaboration",
+    "brainstorming",
+    "workspace"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "socket.io": "^4.8.1"
   }
 }

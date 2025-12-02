@@ -28,10 +28,59 @@ body {
     text-align: left;
 }
 
+.project-name-section {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex: 1;
+    justify-content: center;
+}
+
+.project-name-input {
+    font-size: 1.5rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    text-align: center;
+    outline: none;
+    font-family: inherit;
+    font-weight: normal;
+}
+
+.project-name-input:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+.project-name-input:focus {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
 .heading p {
     margin: 0;
     font-size: 1rem;
     text-align: right;
+}
+
+.share-button {
+    background-color: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: 0.5rem 1rem;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background-color 0.2s;
+}
+
+.share-button:hover {
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
+.share-button:active {
+    background-color: rgba(255, 255, 255, 0.4);
 }
 
 /* Menu Bar */
@@ -99,6 +148,17 @@ body {
     overflow: auto;
     color: #333;
     position: relative;
+}
+
+/* Create large scrollable work surface */
+.viewport::before {
+    content: '';
+    position: absolute;
+    width: 20000px;
+    height: 20000px;
+    left: 0;
+    top: 0;
+    pointer-events: none;
 }
 
 .viewport p {

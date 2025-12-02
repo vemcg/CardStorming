@@ -9,6 +9,10 @@
 <body>
     <div class="heading">
         <h1>CardStorming</h1>
+        <div class="project-name-section">
+            <input type="text" id="project-name" class="project-name-input" value="Unnamed Project" spellcheck="false">
+            <button id="share-btn" class="share-button" title="Share this project">📤 Share</button>
+        </div>
         <p>Welcome to your collaborative workspace</p>
     </div>
 
@@ -16,6 +20,9 @@
         <div class="menu-item">
             <button class="menu-button">File</button>
             <div class="dropdown-content">
+                <a href="#" id="menu-new">New</a>
+                <a href="#" id="menu-open">Open</a>
+                <a href="#" id="menu-close">Close</a>
                 <a href="#" id="menu-exit">Exit</a>
             </div>
         </div>
@@ -80,6 +87,7 @@
         </div>
     </div>
 
+    <script src="/socket.io/socket.io.js"></script>
     <script src="../js/app.js"></script>
 </body>
 </html>
