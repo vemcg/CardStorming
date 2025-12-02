@@ -1,0 +1,3 @@
+@echo off
+echo Starting CardStorming server...
+npm start
