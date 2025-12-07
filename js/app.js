@@ -29,6 +29,32 @@ function generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
+// Calculate luminance and determine text color for readability
+function getTextColorForBackground(bgColor) {
+    // Convert hex to RGB
+    let r, g, b;
+
+    if (bgColor.startsWith('#')) {
+        const hex = bgColor.substring(1);
+        r = parseInt(hex.substr(0, 2), 16);
+        g = parseInt(hex.substr(2, 2), 16);
+        b = parseInt(hex.substr(4, 2), 16);
+    } else if (bgColor.startsWith('rgb')) {
+        const match = bgColor.match(/\d+/g);
+        r = parseInt(match[0]);
+        g = parseInt(match[1]);
+        b = parseInt(match[2]);
+    } else {
+        return '#000000'; // Default to black
+    }
+
+    // Calculate relative luminance using standard formula
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+
+    // Return white text for dark backgrounds, black for light
+    return luminance > 0.5 ? '#000000' : '#ffffff';
+}
+
 // Project state management
 let currentProjectId = getProjectIdFromURL();
 let isProjectOpen = false;
@@ -89,6 +115,11 @@ function openProject(projectId) {
 
     // Enable controls
     setControlsEnabled(true);
+
+    // Update the Open submenu (project will be added to known projects when state:init fires)
+    setTimeout(function() {
+        populateOpenSubmenu();
+    }, 100);
 }
 
 // Function to close current project
@@ -190,14 +221,17 @@ function setupSocketListeners() {
         e.preventDefault();
         const card = e.currentTarget;
         const editModal = document.getElementById('edit-modal');
-        const cardHeaderInput = document.getElementById('card-header');
-        const cardBodyInput = document.getElementById('card-body');
+        const editCardVisual = document.getElementById('edit-card-visual');
+        const editCardHeader = document.getElementById('edit-card-header');
+        const editCardBody = document.getElementById('edit-card-body');
 
-        cardHeaderInput.value = card.dataset.header || '';
-        cardBodyInput.value = card.dataset.body || '';
+        editCardHeader.textContent = card.dataset.header || '';
+        editCardBody.textContent = card.dataset.body || '';
+        editCardVisual.style.backgroundColor = card.style.backgroundColor;
+        editCardVisual.style.color = getTextColorForBackground(card.style.backgroundColor);
         editModal.dataset.editingCardId = card.dataset.id;
         editModal.style.display = 'block';
-        cardHeaderInput.focus();
+        editCardHeader.focus();
     }
 
     // Create a palette card
@@ -209,6 +243,7 @@ function setupSocketListeners() {
         const card = document.createElement('div');
         card.className = 'palette-card';
         card.style.backgroundColor = color;
+        card.style.color = getTextColorForBackground(color);
         card.textContent = type;
         card.draggable = true;
         card.dataset.cardType = type;
@@ -227,6 +262,7 @@ function setupSocketListeners() {
         card.className = 'viewport-card';
         card.dataset.id = id;
         card.style.backgroundColor = color;
+        card.style.color = getTextColorForBackground(color);
         card.style.left = left;
         card.style.top = top;
         card.style.zIndex = zIndex || 1;
@@ -249,13 +285,24 @@ function setupSocketListeners() {
 
         // Set project name
         if (serverState.projectName) {
+            // Server already has a name for this project
             projectNameEl.value = serverState.projectName;
             saveKnownProject(currentProjectId, serverState.projectName);
         } else {
-            const randomName = generateProjectName();
-            projectNameEl.value = randomName;
-            socket.emit('project:rename', { projectId: currentProjectId, name: randomName });
-            saveKnownProject(currentProjectId, randomName);
+            // Check if we have this project in localStorage
+            const knownProjects = getKnownProjects();
+            if (knownProjects[currentProjectId]) {
+                // Use the known project name and tell the server
+                const knownName = knownProjects[currentProjectId].name;
+                projectNameEl.value = knownName;
+                socket.emit('project:rename', { projectId: currentProjectId, name: knownName });
+            } else {
+                // Generate a new random name for this new project
+                const randomName = generateProjectName();
+                projectNameEl.value = randomName;
+                socket.emit('project:rename', { projectId: currentProjectId, name: randomName });
+                saveKnownProject(currentProjectId, randomName);
+            }
         }
 
         // Load palette cards
@@ -309,10 +356,51 @@ function setupSocketListeners() {
     });
 }
 
+// Function to populate Open submenu with known projects
+function populateOpenSubmenu() {
+    const submenu = document.getElementById('open-submenu');
+    const knownProjects = getKnownProjects();
+    const projectIds = Object.keys(knownProjects);
+
+    // Sort by lastAccessed (most recent first)
+    projectIds.sort((a, b) => {
+        const dateA = new Date(knownProjects[a].lastAccessed);
+        const dateB = new Date(knownProjects[b].lastAccessed);
+        return dateB - dateA;
+    });
+
+    submenu.innerHTML = '';
+
+    if (projectIds.length === 0) {
+        const emptyItem = document.createElement('a');
+        emptyItem.href = '#';
+        emptyItem.textContent = 'No known projects';
+        emptyItem.style.fontStyle = 'italic';
+        emptyItem.style.color = '#999';
+        emptyItem.addEventListener('click', (e) => e.preventDefault());
+        submenu.appendChild(emptyItem);
+    } else {
+        projectIds.forEach(id => {
+            const project = knownProjects[id];
+            const item = document.createElement('a');
+            item.href = '#';
+            item.innerHTML = `${project.name}<span class="submenu-item-id">${id}</span>`;
+            item.addEventListener('click', function(e) {
+                e.preventDefault();
+                openProject(id);
+            });
+            submenu.appendChild(item);
+        });
+    }
+}
+
 // Main application
 document.addEventListener('DOMContentLoaded', function() {
     const projectNameEl = document.getElementById('project-name');
     const shareBtn = document.getElementById('share-btn');
+
+    // Populate Open submenu
+    populateOpenSubmenu();
 
     // Check if we should open a project on load
     if (currentProjectId) {
@@ -320,6 +408,16 @@ document.addEventListener('DOMContentLoaded', function() {
     } else {
         closeProject();
     }
+
+    // Handle hash changes (when URL is pasted or changed)
+    window.addEventListener('hashchange', function() {
+        const newProjectId = getProjectIdFromURL();
+        if (newProjectId && newProjectId !== currentProjectId) {
+            openProject(newProjectId);
+        } else if (!newProjectId && isProjectOpen) {
+            closeProject();
+        }
+    });
 
     // New menu item
     const newMenuItem = document.getElementById('menu-new');
@@ -331,45 +429,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Open menu item
-    const openMenuItem = document.getElementById('menu-open');
-    if (openMenuItem) {
-        openMenuItem.addEventListener('click', function(e) {
-            e.preventDefault();
-            const knownProjects = getKnownProjects();
-            const projectIds = Object.keys(knownProjects);
-
-            if (projectIds.length === 0) {
-                alert('No known projects yet. Create a new project or open one from a shared link.');
-                return;
-            }
-
-            let message = 'Known Projects:\n\n';
-            projectIds.forEach((id, index) => {
-                const project = knownProjects[id];
-                message += `${index + 1}. ${project.name} (${id})\n`;
-            });
-            message += '\nEnter the number of the project to open, or paste a project URL/ID:';
-
-            const input = prompt(message);
-            if (input) {
-                let id = null;
-                const num = parseInt(input);
-                if (!isNaN(num) && num > 0 && num <= projectIds.length) {
-                    id = projectIds[num - 1];
-                } else {
-                    id = input;
-                    if (input.includes('#')) {
-                        id = input.split('#')[1];
-                    }
-                }
-
-                if (id) {
-                    openProject(id);
-                }
-            }
-        });
-    }
+    // Open submenu is handled by hover and populated dynamically
 
     // Close menu item
     const closeMenuItem = document.getElementById('menu-close');
@@ -402,40 +462,74 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Share button
+    // Share button - show dialog
+    const shareModal = document.getElementById('share-modal');
+    const shareMessage = document.getElementById('share-message');
+    const shareCopyText = document.getElementById('share-copy-text');
+    const shareCopyLink = document.getElementById('share-copy-link');
+    const shareCancel = document.getElementById('share-cancel');
+
     shareBtn.addEventListener('click', function() {
         const projectName = projectNameEl.value.trim();
         const projectUrl = window.location.origin + window.location.pathname + '#' + currentProjectId;
         const message = `Join me in CardStorming on "${projectName}"!\n\n${projectUrl}`;
-        const htmlMessage = `<p>Join me in CardStorming on "<a href="${projectUrl}">${projectName}</a>"!</p><p><a href="${projectUrl}">${projectUrl}</a></p>`;
 
-        if (navigator.clipboard && window.ClipboardItem) {
-            const blob = new Blob([htmlMessage], { type: 'text/html' });
-            const textBlob = new Blob([message], { type: 'text/plain' });
-            const clipboardItem = new ClipboardItem({
-                'text/html': blob,
-                'text/plain': textBlob
-            });
+        // Display the message in the dialog
+        shareMessage.textContent = message;
 
-            navigator.clipboard.write([clipboardItem]).then(function() {
-                const originalText = shareBtn.textContent;
-                shareBtn.textContent = '✓ Copied!';
-                shareBtn.style.backgroundColor = 'rgba(76, 175, 80, 0.3)';
-                setTimeout(function() {
-                    shareBtn.textContent = originalText;
-                    shareBtn.style.backgroundColor = '';
-                }, 2000);
-            }).catch(function(err) {
-                navigator.clipboard.writeText(message).then(function() {
-                    alert('Share message copied to clipboard!');
-                });
-            });
-        } else {
-            navigator.clipboard.writeText(message).then(function() {
-                alert('Share message copied to clipboard!');
-            }).catch(function(err) {
-                prompt('Copy this message to share:', message);
-            });
+        // Show the dialog
+        shareModal.style.display = 'block';
+    });
+
+    // Copy Text button
+    shareCopyText.addEventListener('click', function() {
+        const projectName = projectNameEl.value.trim();
+        const projectUrl = window.location.origin + window.location.pathname + '#' + currentProjectId;
+        const message = `Join me in CardStorming on "${projectName}"!\n\n${projectUrl}`;
+
+        navigator.clipboard.writeText(message).then(function() {
+            shareCopyText.textContent = '✓ Copied!';
+            shareCopyText.style.backgroundColor = '#4CAF50';
+            shareCopyText.style.color = 'white';
+            setTimeout(function() {
+                shareCopyText.textContent = 'Copy Text';
+                shareCopyText.style.backgroundColor = '';
+                shareCopyText.style.color = '';
+                shareModal.style.display = 'none';
+            }, 1000);
+        }).catch(function(err) {
+            alert('Failed to copy to clipboard');
+        });
+    });
+
+    // Copy Link button
+    shareCopyLink.addEventListener('click', function() {
+        const projectUrl = window.location.origin + window.location.pathname + '#' + currentProjectId;
+
+        navigator.clipboard.writeText(projectUrl).then(function() {
+            shareCopyLink.textContent = '✓ Copied!';
+            shareCopyLink.style.backgroundColor = '#4CAF50';
+            shareCopyLink.style.color = 'white';
+            setTimeout(function() {
+                shareCopyLink.textContent = 'Copy Link';
+                shareCopyLink.style.backgroundColor = '';
+                shareCopyLink.style.color = '';
+                shareModal.style.display = 'none';
+            }, 1000);
+        }).catch(function(err) {
+            alert('Failed to copy to clipboard');
+        });
+    });
+
+    // Cancel button
+    shareCancel.addEventListener('click', function() {
+        shareModal.style.display = 'none';
+    });
+
+    // Close modal when clicking outside
+    window.addEventListener('click', function(event) {
+        if (event.target === shareModal) {
+            shareModal.style.display = 'none';
         }
     });
 
@@ -454,17 +548,79 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Card creation functionality
+    // Card creation functionality with color wheel
     const addCardBtn = document.getElementById('add-card-btn');
     const modal = document.getElementById('card-modal');
     const modalOk = document.getElementById('modal-ok');
     const modalCancel = document.getElementById('modal-cancel');
     const cardTypeInput = document.getElementById('card-type');
-    const cardColorSelect = document.getElementById('card-color');
+    const colorWheel = document.getElementById('color-wheel');
+    const colorPreview = document.getElementById('color-preview');
+
+    let selectedColor = '#fff9c4'; // Default color
+
+    // Draw color wheel
+    function drawColorWheel() {
+        const ctx = colorWheel.getContext('2d');
+        const width = colorWheel.width;
+        const height = colorWheel.height;
+        const radius = width / 2;
+        const centerX = width / 2;
+        const centerY = height / 2;
+
+        // Draw color wheel
+        for (let angle = 0; angle < 360; angle++) {
+            const startAngle = (angle - 1) * Math.PI / 180;
+            const endAngle = angle * Math.PI / 180;
+
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+            ctx.closePath();
+
+            const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+            const hue = angle;
+            gradient.addColorStop(0, '#ffffff');
+            gradient.addColorStop(0.7, `hsl(${hue}, 100%, 50%)`);
+            gradient.addColorStop(1, `hsl(${hue}, 100%, 25%)`);
+
+            ctx.fillStyle = gradient;
+            ctx.fill();
+        }
+    }
+
+    // Get color from wheel at click position
+    function getColorAtPosition(x, y) {
+        const rect = colorWheel.getBoundingClientRect();
+        const canvasX = x - rect.left;
+        const canvasY = y - rect.top;
+        const ctx = colorWheel.getContext('2d');
+        const imageData = ctx.getImageData(canvasX, canvasY, 1, 1).data;
+        return `rgb(${imageData[0]}, ${imageData[1]}, ${imageData[2]})`;
+    }
+
+    // Convert RGB to hex
+    function rgbToHex(rgb) {
+        const match = rgb.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+        if (!match) return rgb;
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+    }
+
+    // Handle color wheel click
+    colorWheel.addEventListener('click', function(e) {
+        const color = getColorAtPosition(e.clientX, e.clientY);
+        selectedColor = rgbToHex(color);
+        colorPreview.style.backgroundColor = selectedColor;
+    });
 
     addCardBtn.addEventListener('click', function() {
+        drawColorWheel();
         modal.style.display = 'block';
         cardTypeInput.value = '';
+        colorPreview.style.backgroundColor = selectedColor;
         cardTypeInput.focus();
     });
 
@@ -474,7 +630,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     modalOk.addEventListener('click', function() {
         const cardType = cardTypeInput.value.trim();
-        const cardColor = cardColorSelect.value;
 
         if (cardType === '') {
             alert('Please enter a card type name');
@@ -483,7 +638,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         socket.emit('palette:add', {
             type: cardType,
-            color: cardColor
+            color: selectedColor
         });
 
         modal.style.display = 'none';
@@ -521,10 +676,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Card edit modal elements
     const editModal = document.getElementById('edit-modal');
-    const editOkBtn = document.getElementById('edit-ok');
-    const editCancelBtn = document.getElementById('edit-cancel');
-    const cardHeaderInput = document.getElementById('card-header');
-    const cardBodyInput = document.getElementById('card-body');
+    const editCloseBtn = document.getElementById('edit-close');
+    const editSaveBtn = document.getElementById('edit-save');
+    const editCardVisual = document.getElementById('edit-card-visual');
+    const editCardHeader = document.getElementById('edit-card-header');
+    const editCardBody = document.getElementById('edit-card-body');
     let pendingCard = null;
 
     // Handle drop events (both new cards and moving existing cards)
@@ -571,10 +727,12 @@ document.addEventListener('DOMContentLoaded', function() {
             top: y + 'px'
         };
 
-        cardHeaderInput.value = '';
-        cardBodyInput.value = '';
+        editCardHeader.textContent = '';
+        editCardBody.textContent = '';
+        editCardVisual.style.backgroundColor = data.color;
+        editCardVisual.style.color = getTextColorForBackground(data.color);
         editModal.style.display = 'block';
-        cardHeaderInput.focus();
+        editCardHeader.focus();
     });
 
     // Viewport card drag handlers
@@ -595,11 +753,107 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }, true);
 
-    // Edit modal handlers
-    editOkBtn.addEventListener('click', function() {
+    // Viewport panning (click and drag to move view)
+    let isPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let panScrollLeft = 0;
+    let panScrollTop = 0;
+
+    viewport.addEventListener('mousedown', function(e) {
+        // Only pan if clicking directly on viewport (not on a card)
+        if (e.target === viewport || e.target.classList.contains('viewport')
+            || (e.target.tagName === 'P' && e.target.parentElement === viewport)) {
+            isPanning = true;
+            panStartX = e.clientX;
+            panStartY = e.clientY;
+            panScrollLeft = viewport.scrollLeft;
+            panScrollTop = viewport.scrollTop;
+            viewport.style.cursor = 'grabbing';
+            e.preventDefault();
+        }
+    });
+
+    viewport.addEventListener('mousemove', function(e) {
+        if (!isPanning) return;
+
+        const dx = e.clientX - panStartX;
+        const dy = e.clientY - panStartY;
+
+        viewport.scrollLeft = panScrollLeft - dx;
+        viewport.scrollTop = panScrollTop - dy;
+    });
+
+    viewport.addEventListener('mouseup', function(e) {
+        if (isPanning) {
+            isPanning = false;
+            viewport.style.cursor = '';
+        }
+    });
+
+    viewport.addEventListener('mouseleave', function(e) {
+        if (isPanning) {
+            isPanning = false;
+            viewport.style.cursor = '';
+        }
+    });
+
+    // Handle Enter key in header - move to body
+    editCardHeader.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            editCardBody.focus();
+            // Move cursor to start of body
+            const range = document.createRange();
+            const sel = window.getSelection();
+            range.setStart(editCardBody, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+    });
+
+    // Handle triple Enter in body - close and save
+    let enterCount = 0;
+    let lastEnterTime = 0;
+    editCardBody.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            const now = Date.now();
+            if (now - lastEnterTime < 500) {
+                enterCount++;
+            } else {
+                enterCount = 1;
+            }
+            lastEnterTime = now;
+
+            if (enterCount >= 3) {
+                e.preventDefault();
+                saveAndCloseEditModal();
+                enterCount = 0;
+            }
+        } else {
+            enterCount = 0;
+        }
+    });
+
+    // Close button handler (cancel without saving)
+    editCloseBtn.addEventListener('click', function() {
+        editModal.style.display = 'none';
+        pendingCard = null;
+        editModal.dataset.editingCardId = '';
+        enterCount = 0;
+    });
+
+    // Save button handler (save and close)
+    editSaveBtn.addEventListener('click', function() {
+        saveAndCloseEditModal();
+    });
+
+    // Save and close function
+    function saveAndCloseEditModal() {
         const editingCardId = editModal.dataset.editingCardId;
-        const header = cardHeaderInput.value.trim();
-        const body = cardBodyInput.value.trim();
+        const header = editCardHeader.textContent.trim();
+        const body = editCardBody.textContent.trim();
 
         if (editingCardId) {
             // Editing existing card
@@ -623,25 +877,16 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         editModal.style.display = 'none';
-    });
+        enterCount = 0;
+    }
 
-    editCancelBtn.addEventListener('click', function() {
-        editModal.style.display = 'none';
-        editModal.dataset.editingCardId = '';
-        pendingCard = null;
-    });
-
-    cardHeaderInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            editOkBtn.click();
-        }
-    });
-
+    // Click outside modal to close
     window.addEventListener('click', function(event) {
         if (event.target === editModal) {
             editModal.style.display = 'none';
             editModal.dataset.editingCardId = '';
             pendingCard = null;
+            enterCount = 0;
         }
     });
 });

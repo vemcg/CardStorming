@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="150">
+  <!-- Pink header line at 10px from top, 2px thick -->
+  <rect x="0" y="10" width="200" height="2" fill="#ff9999"/>
+
+  <!-- Blue ruling lines starting at 21px, every 9px, 1px thick -->
+  <rect x="0" y="21" width="200" height="1" fill="#add8e6"/>
+  <rect x="0" y="30" width="200" height="1" fill="#add8e6"/>
+  <rect x="0" y="39" width="200" height="1" fill="#add8e6"/>
+  <rect x="0" y="48" width="200" height="1" fill="#add8e6"/>
+  <rect x="0" y="57" width="200" height="1" fill="#add8e6"/>
+  <rect x="0" y="66" width="200" height="1" fill="#add8e6"/>
+  <rect x="0" y="75" width="200" height="1" fill="#add8e6"/>
+  <rect x="0" y="84" width="200" height="1" fill="#add8e6"/>
+  <rect x="0" y="93" width="200" height="1" fill="#add8e6"/>
+  <rect x="0" y="102" width="200" height="1" fill="#add8e6"/>
+  <rect x="0" y="111" width="200" height="1" fill="#add8e6"/>
+  <rect x="0" y="120" width="200" height="1" fill="#add8e6"/>
+  <rect x="0" y="129" width="200" height="1" fill="#add8e6"/>
+  <rect x="0" y="138" width="200" height="1" fill="#add8e6"/>
+  <rect x="0" y="147" width="200" height="1" fill="#add8e6"/>
+</svg>

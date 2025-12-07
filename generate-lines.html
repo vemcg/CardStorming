@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Generate Index Card Lines</title>
+</head>
+<body>
+    <canvas id="lines" width="200" height="150"></canvas>
+    <script>
+        const canvas = document.getElementById('lines');
+        const ctx = canvas.getContext('2d');
+
+        // Start with transparent background
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw pink header line at 10px from top
+        ctx.fillStyle = '#ff9999';
+        ctx.fillRect(0, 10, canvas.width, 2);
+
+        // Draw blue ruling lines starting at 21px, every 9px
+        ctx.fillStyle = '#add8e6';
+        let y = 21;
+        while (y < canvas.height) {
+            ctx.fillRect(0, y, canvas.width, 1);
+            y += 9;
+        }
+
+        // Convert to data URL and display
+        const dataUrl = canvas.toDataURL('image/png');
+        console.log('Right-click the canvas and save as "index-card-lines.png"');
+        document.body.innerHTML += '<p>Right-click the canvas above and save as "index-card-lines.png" to images folder</p>';
+    </script>
+</body>
+</html>

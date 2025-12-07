@@ -21,7 +21,12 @@
             <button class="menu-button">File</button>
             <div class="dropdown-content">
                 <a href="#" id="menu-new">New</a>
-                <a href="#" id="menu-open">Open</a>
+                <div class="submenu-container">
+                    <a href="#" id="menu-open" class="has-submenu">Open ›</a>
+                    <div class="submenu-content" id="open-submenu">
+                        <!-- Projects will be dynamically inserted here -->
+                    </div>
+                </div>
                 <a href="#" id="menu-close">Close</a>
                 <a href="#" id="menu-exit">Exit</a>
             </div>
@@ -51,17 +56,11 @@
             <label for="card-type">Card Type:</label>
             <input type="text" id="card-type" placeholder="Enter card type name">
 
-            <label for="card-color">Background Color:</label>
-            <select id="card-color">
-                <option value="#fff9c4">Yellow</option>
-                <option value="#ffccbc">Orange</option>
-                <option value="#f8bbd0">Pink</option>
-                <option value="#e1bee7">Purple</option>
-                <option value="#c5cae9">Blue</option>
-                <option value="#b2dfdb">Teal</option>
-                <option value="#c8e6c9">Green</option>
-                <option value="#ffffff">White</option>
-            </select>
+            <label>Background Color:</label>
+            <div class="color-picker-container">
+                <canvas id="color-wheel" width="200" height="200"></canvas>
+                <div class="color-preview" id="color-preview"></div>
+            </div>
 
             <div class="modal-buttons">
                 <button id="modal-ok">OK</button>
@@ -72,17 +71,25 @@
 
     <!-- Card Edit Modal -->
     <div id="edit-modal" class="modal">
+        <div class="modal-content edit-card-container">
+            <button id="edit-close" class="edit-close-btn">&times;</button>
+            <div class="edit-card-visual" id="edit-card-visual">
+                <div class="edit-card-header" id="edit-card-header" contenteditable="true" data-placeholder="Header"></div>
+                <div class="edit-card-body" id="edit-card-body" contenteditable="true" data-placeholder="Body text..."></div>
+            </div>
+            <button id="edit-save" class="edit-save-btn">&#10003;</button>
+        </div>
+    </div>
+
+    <!-- Share Dialog -->
+    <div id="share-modal" class="modal">
         <div class="modal-content">
-            <h2>Edit Card</h2>
-            <label for="card-header">Header:</label>
-            <input type="text" id="card-header" placeholder="Enter card header">
-
-            <label for="card-body">Body:</label>
-            <textarea id="card-body" rows="5" placeholder="Enter card body text"></textarea>
-
+            <h2>Share Project</h2>
+            <div id="share-message" class="share-message"></div>
             <div class="modal-buttons">
-                <button id="edit-ok">OK</button>
-                <button id="edit-cancel">Cancel</button>
+                <button id="share-copy-text">Copy Text</button>
+                <button id="share-copy-link">Copy Link</button>
+                <button id="share-cancel">Cancel</button>
             </div>
         </div>
     </div>

@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 
@@ -8,17 +9,89 @@ const httpServer = createServer(app);
 const io = new Server(httpServer);
 const PORT = process.env.PORT || 3000;
 
-// Server-side state - organized by project ID
+// Data directory for persistent storage
+const DATA_DIR = path.join(__dirname, 'data', 'projects');
+
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    console.log('Created data directory:', DATA_DIR);
+}
+
+// Server-side state - organized by project ID (in-memory, authoritative)
 const projects = new Map();
+
+// Track which projects need to be saved (dirty flag per project)
+const dirtyProjects = new Set();
+
+// Debounced save - writes dirty projects to disk every 5 seconds
+setInterval(() => {
+    if (dirtyProjects.size > 0) {
+        const projectsToSave = Array.from(dirtyProjects);
+        dirtyProjects.clear();
+
+        projectsToSave.forEach(projectId => {
+            saveProjectToDisk(projectId);
+        });
+    }
+}, 5000);
+
+// Save a single project to disk
+function saveProjectToDisk(projectId) {
+    const project = projects.get(projectId);
+    if (!project) return;
+
+    const filePath = path.join(DATA_DIR, `${projectId}.json`);
+    const data = JSON.stringify(project, null, 2);
+
+    fs.writeFile(filePath, data, 'utf8', (err) => {
+        if (err) {
+            console.error(`Error saving project ${projectId}:`, err);
+        } else {
+            console.log(`Saved project ${projectId} to disk`);
+        }
+    });
+}
+
+// Load a project from disk
+function loadProjectFromDisk(projectId) {
+    const filePath = path.join(DATA_DIR, `${projectId}.json`);
+
+    try {
+        if (fs.existsSync(filePath)) {
+            const data = fs.readFileSync(filePath, 'utf8');
+            const project = JSON.parse(data);
+            console.log(`Loaded project ${projectId} from disk`);
+            return project;
+        }
+    } catch (err) {
+        console.error(`Error loading project ${projectId}:`, err);
+    }
+
+    return null;
+}
+
+// Mark project as dirty (needs to be saved)
+function markProjectDirty(projectId) {
+    dirtyProjects.add(projectId);
+}
 
 function getProject(projectId) {
     if (!projects.has(projectId)) {
-        projects.set(projectId, {
-            projectName: null,
-            paletteCards: [],
-            viewportCards: [],
-            maxZIndex: 1
-        });
+        // Try to load from disk first
+        const savedProject = loadProjectFromDisk(projectId);
+
+        if (savedProject) {
+            projects.set(projectId, savedProject);
+        } else {
+            // Create new project
+            projects.set(projectId, {
+                projectName: null,
+                paletteCards: [],
+                viewportCards: [],
+                maxZIndex: 1
+            });
+        }
     }
     return projects.get(projectId);
 }
@@ -63,6 +136,7 @@ io.on('connection', (socket) => {
     socket.on('project:rename', (data) => {
         const project = getProject(data.projectId);
         project.projectName = data.name;
+        markProjectDirty(data.projectId);
         io.to(data.projectId).emit('project:renamed', { name: data.name });
     });
 
@@ -70,6 +144,7 @@ io.on('connection', (socket) => {
     socket.on('palette:add', (cardData) => {
         const project = getProject(projectId);
         project.paletteCards.push(cardData);
+        markProjectDirty(projectId);
         io.to(projectId).emit('palette:add', cardData);
     });
 
@@ -79,6 +154,7 @@ io.on('connection', (socket) => {
         project.maxZIndex++;
         cardData.zIndex = project.maxZIndex;
         project.viewportCards.push(cardData);
+        markProjectDirty(projectId);
         io.to(projectId).emit('viewport:add', cardData);
     });
 
@@ -92,6 +168,7 @@ io.on('connection', (socket) => {
             card.body = body;
             project.maxZIndex++;
             card.zIndex = project.maxZIndex;
+            markProjectDirty(projectId);
             io.to(projectId).emit('viewport:update', { id, header, body, zIndex: card.zIndex });
         }
     });
@@ -106,6 +183,7 @@ io.on('connection', (socket) => {
             card.top = top;
             project.maxZIndex++;
             card.zIndex = project.maxZIndex;
+            markProjectDirty(projectId);
             io.to(projectId).emit('viewport:move', { id, left, top, zIndex: card.zIndex });
         }
     });
