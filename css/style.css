@@ -20,12 +20,22 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 2rem;
 }
 
 .heading h1 {
     font-size: 2rem;
     margin: 0;
     text-align: left;
+    flex-shrink: 0;
+}
+
+.welcome-text {
+    margin: 0;
+    font-size: 0.95rem;
+    flex-shrink: 0;
+    white-space: nowrap;
+    text-align: right;
 }
 
 .project-name-section {
@@ -83,13 +93,163 @@ body {
     background-color: rgba(255, 255, 255, 0.4);
 }
 
+/* User Identity Panel (on blocking overlay) */
+.user-identity-panel {
+    position: absolute;
+    top: 20%;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: white;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    min-width: 400px;
+}
+
+.user-identity-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.user-identity-content h2 {
+    margin: 0;
+    text-align: center;
+    color: #2c3e50;
+    font-size: 1.5rem;
+}
+
+.user-input-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+}
+
+.user-field-wrapper {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.user-initials-input {
+    width: 90px;
+    padding: 0.5rem;
+    border-radius: 4px;
+    background-color: white;
+    color: #333;
+    border: 2px solid #ccc;
+    text-align: center;
+    outline: none;
+    font-family: inherit;
+    font-weight: bold;
+    font-size: 1rem;
+    text-transform: uppercase;
+}
+
+.user-initials-input::placeholder {
+    font-weight: normal;
+    text-transform: none;
+}
+
+.user-initials-input:focus {
+    background-color: white;
+    border-color: #4CAF50;
+}
+
+.user-initials-input.error {
+    border-color: #f44336;
+    background-color: #ffebee;
+}
+
+.user-initials-input.valid {
+    border-color: #4CAF50;
+    background-color: #e8f5e9;
+}
+
+.user-name-input {
+    flex: 1;
+    padding: 0.5rem;
+    border-radius: 4px;
+    background-color: white;
+    color: #333;
+    border: 2px solid #ccc;
+    outline: none;
+    font-family: inherit;
+    font-size: 1rem;
+}
+
+.user-name-input::placeholder {
+    font-weight: normal;
+    text-transform: none;
+}
+
+.user-name-input:focus {
+    background-color: white;
+    border-color: #4CAF50;
+}
+
+.user-name-input:disabled {
+    background-color: rgba(200, 200, 200, 0.5);
+    color: #999;
+    cursor: not-allowed;
+}
+
+/* Initials Dropdown */
+.initials-dropdown {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    z-index: 10001;
+    min-width: 250px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.initials-dropdown.show {
+    display: block;
+}
+
+.dropdown-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    color: #333;
+    border-bottom: 1px solid #eee;
+}
+
+.dropdown-item:hover {
+    background-color: #f0f0f0;
+}
+
+.dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.dropdown-item-initials {
+    font-weight: bold;
+    margin-right: 8px;
+}
+
+.dropdown-item-name {
+    color: #666;
+}
+
 /* Menu Bar */
 .menu-bar {
     background-color: #f0f0f0;
     border-bottom: 1px solid #ccc;
     display: flex;
+    justify-content: space-between;
     padding: 0;
     height: 40px;
+}
+
+.menu-left {
+    display: flex;
 }
 
 .menu-item {
@@ -119,7 +279,7 @@ body {
     background-color: white;
     min-width: 160px;
     box-shadow: 0px 8px 16px rgba(0, 0, 0, 0.2);
-    z-index: 1;
+    z-index: 9999;
 }
 
 .dropdown-content a {
@@ -152,7 +312,7 @@ body {
     background-color: white;
     min-width: 200px;
     box-shadow: 0px 8px 16px rgba(0, 0, 0, 0.2);
-    z-index: 2;
+    z-index: 10000;
     max-height: 400px;
     overflow-y: auto;
 }
@@ -181,6 +341,37 @@ body {
     display: block;
 }
 
+/* Zoom Controls */
+.zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding-right: 10px;
+}
+
+.zoom-button {
+    background: none;
+    border: none;
+    padding: 0 15px;
+    cursor: pointer;
+    font-size: 18px;
+    height: 40px;
+    color: #333;
+    transition: background-color 0.2s;
+}
+
+.zoom-button:hover {
+    background-color: #e0e0e0;
+}
+
+.zoom-button:active {
+    background-color: #d0d0d0;
+}
+
+#center-btn {
+    font-size: 20px;
+}
+
 /* Main Container */
 .main-container {
     display: flex;
@@ -193,7 +384,7 @@ body {
     flex: 1;
     background: white;
     padding: 2rem;
-    overflow: auto;
+    overflow: hidden;
     color: #333;
     position: relative;
 }
@@ -384,6 +575,16 @@ body {
     width: 100%;
     word-wrap: break-word;
     white-space: pre-wrap;
+}
+
+.viewport-card .card-author {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    font-size: 10px;
+    font-weight: bold;
+    opacity: 0.6;
+    pointer-events: none;
 }
 
 .dragging {

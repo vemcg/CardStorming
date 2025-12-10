@@ -29,6 +29,74 @@ function generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
+// Zoom controls with focal point tracking
+let currentZoom = 1.0;
+const ZOOM_STEP = 0.05;  // Very slow, smooth zoom (5%)
+const MIN_ZOOM = 0.1;  // Very zoomed out - see lots of workspace
+const MAX_ZOOM = 3.0;   // 3x for accessibility
+let focalPoint = { x: 0.5, y: 0.5 }; // Normalized coordinates (0-1), default center
+
+function setZoom(zoomLevel) {
+    const viewport = document.querySelector('.viewport');
+    if (!viewport) return;
+
+    const oldZoom = currentZoom;
+    currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel));
+
+    // Calculate transform origin based on focal point (percentage coordinates)
+    const originX = focalPoint.x * 100;
+    const originY = focalPoint.y * 100;
+
+    viewport.style.transform = `scale(${currentZoom})`;
+    viewport.style.transformOrigin = `${originX}% ${originY}%`;
+}
+
+function zoomIn() {
+    setZoom(currentZoom + ZOOM_STEP);
+}
+
+function zoomOut() {
+    setZoom(currentZoom - ZOOM_STEP);
+}
+
+function centerView() {
+    const viewport = document.querySelector('.viewport');
+    if (!viewport) return;
+
+    // Reset focal point to center of workspace
+    focalPoint = { x: 0.5, y: 0.5 };
+
+    // Reset zoom to 100%
+    setZoom(1.0);
+}
+
+function setFocalPointFromEvent(event, card = null) {
+    const viewport = document.querySelector('.viewport');
+    if (!viewport) return;
+
+    const rect = viewport.getBoundingClientRect();
+    let clientX, clientY;
+
+    // If a card is provided, use its center
+    if (card) {
+        const cardRect = card.getBoundingClientRect();
+        clientX = cardRect.left + cardRect.width / 2;
+        clientY = cardRect.top + cardRect.height / 2;
+    } else {
+        // Otherwise use the event position
+        clientX = event.clientX;
+        clientY = event.clientY;
+    }
+
+    // Calculate normalized position (0-1) within viewport
+    focalPoint.x = (clientX - rect.left) / rect.width;
+    focalPoint.y = (clientY - rect.top) / rect.height;
+
+    // Clamp to valid range
+    focalPoint.x = Math.max(0, Math.min(1, focalPoint.x));
+    focalPoint.y = Math.max(0, Math.min(1, focalPoint.y));
+}
+
 // Calculate luminance and determine text color for readability
 function getTextColorForBackground(bgColor) {
     // Convert hex to RGB
@@ -60,6 +128,11 @@ let currentProjectId = getProjectIdFromURL();
 let isProjectOpen = false;
 let socket = null;
 
+// User state management
+let currentUserInitials = null;
+let currentUserName = null;
+let isUserAuthenticated = false;
+
 // Project tracking in localStorage
 function saveKnownProject(projectId, projectName) {
     const knownProjects = JSON.parse(localStorage.getItem('knownProjects') || '{}');
@@ -74,25 +147,93 @@ function getKnownProjects() {
     return JSON.parse(localStorage.getItem('knownProjects') || '{}');
 }
 
+// User tracking in localStorage (per project)
+function saveProjectUser(projectId, initials, name) {
+    const projectUsers = JSON.parse(localStorage.getItem('projectUsers') || '{}');
+    if (!projectUsers[projectId]) {
+        projectUsers[projectId] = [];
+    }
+
+    // Remove existing entry for these initials
+    projectUsers[projectId] = projectUsers[projectId].filter(u => u.initials !== initials);
+
+    // Add to front (most recent)
+    projectUsers[projectId].unshift({ initials, name });
+
+    // Keep only last 10 users per project
+    projectUsers[projectId] = projectUsers[projectId].slice(0, 10);
+
+    localStorage.setItem('projectUsers', JSON.stringify(projectUsers));
+}
+
+function getProjectUsers(projectId) {
+    const projectUsers = JSON.parse(localStorage.getItem('projectUsers') || '{}');
+    return projectUsers[projectId] || [];
+}
+
+// Save current session user (per tab)
+function saveSessionUser(initials, name) {
+    sessionStorage.setItem('currentUser', JSON.stringify({ initials, name }));
+}
+
+function getSessionUser() {
+    const user = sessionStorage.getItem('currentUser');
+    return user ? JSON.parse(user) : null;
+}
+
 // Function to disable/enable UI controls
 function setControlsEnabled(enabled) {
-    const addCardBtn = document.getElementById('add-card-btn');
-    const projectNameEl = document.getElementById('project-name');
-    const shareBtn = document.getElementById('share-btn');
-    const viewport = document.querySelector('.viewport');
-    const palette = document.querySelector('.palette');
+    // Get or create the workspace overlay
+    let overlay = document.getElementById('workspace-overlay');
 
-    if (addCardBtn) addCardBtn.disabled = !enabled;
-    if (projectNameEl) projectNameEl.disabled = !enabled;
-    if (shareBtn) shareBtn.disabled = !enabled;
+    if (!enabled) {
+        // Create overlay if it doesn't exist
+        if (!overlay) {
+            // Calculate the top position: heading height + menu bar height
+            const heading = document.querySelector('.heading');
+            const menuBar = document.querySelector('.menu-bar');
+            const topOffset = (heading?.offsetHeight || 0) + (menuBar?.offsetHeight || 0);
 
-    if (viewport) {
-        viewport.style.opacity = enabled ? '1' : '0.5';
-        viewport.style.pointerEvents = enabled ? 'auto' : 'none';
-    }
-    if (palette) {
-        palette.style.opacity = enabled ? '1' : '0.5';
-        palette.style.pointerEvents = enabled ? 'auto' : 'none';
+            overlay = document.createElement('div');
+            overlay.id = 'workspace-overlay';
+            overlay.style.cssText = `
+                position: fixed;
+                top: ${topOffset}px;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: rgba(0, 0, 0, 0.3);
+                backdrop-filter: blur(2px);
+                z-index: 9998;
+                pointer-events: auto;
+            `;
+
+            // Create user identity panel on the overlay
+            const identityPanel = document.createElement('div');
+            identityPanel.className = 'user-identity-panel';
+            identityPanel.innerHTML = `
+                <div class="user-identity-content">
+                    <h2>Who are you?</h2>
+                    <form autocomplete="off">
+                        <div class="user-input-row">
+                            <div class="user-field-wrapper">
+                                <input type="text" id="user-initials" class="user-initials-input" name="user-initials-${Date.now()}" maxlength="4" placeholder="initials" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-form-type="other">
+                                <div id="initials-dropdown" class="initials-dropdown"></div>
+                            </div>
+                            <input type="text" id="user-name" class="user-name-input" name="user-name-${Date.now()}" disabled placeholder="name" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-form-type="other">
+                        </div>
+                    </form>
+                </div>
+            `;
+
+            overlay.appendChild(identityPanel);
+            document.body.appendChild(overlay);
+        }
+    } else {
+        // Remove overlay if it exists
+        if (overlay) {
+            overlay.remove();
+        }
     }
 }
 
@@ -113,8 +254,8 @@ function openProject(projectId) {
     // Set up socket event listeners
     setupSocketListeners();
 
-    // Enable controls
-    setControlsEnabled(true);
+    // Set up user identity listeners now that project is open
+    setupUserIdentityListeners();
 
     // Update the Open submenu (project will be added to known projects when state:init fires)
     setTimeout(function() {
@@ -152,7 +293,18 @@ function closeProject() {
         projectNameEl.value = 'No Project Open';
     }
 
-    // Disable controls
+    // Reset welcome text
+    const welcomeText = document.getElementById('welcome-text');
+    if (welcomeText) {
+        welcomeText.textContent = 'Welcome to your collaborative workspace';
+    }
+
+    // Clear authentication state
+    isUserAuthenticated = false;
+    currentUserInitials = null;
+    currentUserName = null;
+
+    // Disable controls (this will remove the overlay and user identity fields)
     setControlsEnabled(false);
 }
 
@@ -219,14 +371,28 @@ function setupSocketListeners() {
 
     function handleCardDoubleClick(e) {
         e.preventDefault();
+
         const card = e.currentTarget;
+
+        // Update focal point to center of card
+        setFocalPointFromEvent(e, card);
         const editModal = document.getElementById('edit-modal');
         const editCardVisual = document.getElementById('edit-card-visual');
         const editCardHeader = document.getElementById('edit-card-header');
         const editCardBody = document.getElementById('edit-card-body');
 
         editCardHeader.textContent = card.dataset.header || '';
-        editCardBody.textContent = card.dataset.body || '';
+
+        // Convert newlines to HTML for contenteditable
+        const bodyText = card.dataset.body || '';
+        editCardBody.innerHTML = bodyText
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .split('\n')
+            .map((line, index) => index === 0 ? line : '<div>' + line + '</div>')
+            .join('');
+
         editCardVisual.style.backgroundColor = card.style.backgroundColor;
         editCardVisual.style.color = getTextColorForBackground(card.style.backgroundColor);
         editModal.dataset.editingCardId = card.dataset.id;
@@ -257,7 +423,7 @@ function setupSocketListeners() {
     }
 
     // Create a viewport card
-    function createViewportCard(id, header, body, color, left, top, zIndex) {
+    function createViewportCard(id, header, body, color, left, top, zIndex, authorInitials) {
         const card = document.createElement('div');
         card.className = 'viewport-card';
         card.dataset.id = id;
@@ -268,6 +434,14 @@ function setupSocketListeners() {
         card.style.zIndex = zIndex || 1;
 
         updateCardContent(card, header, body);
+
+        // Add author initials in upper right corner
+        if (authorInitials) {
+            const authorEl = document.createElement('div');
+            authorEl.className = 'card-author';
+            authorEl.textContent = authorInitials;
+            card.appendChild(authorEl);
+        }
 
         card.draggable = true;
         card.addEventListener('dragstart', handleViewportCardDragStart);
@@ -312,7 +486,7 @@ function setupSocketListeners() {
 
         // Load viewport cards
         serverState.viewportCards.forEach(cardData => {
-            createViewportCard(cardData.id, cardData.header, cardData.body, cardData.color, cardData.left, cardData.top, cardData.zIndex);
+            createViewportCard(cardData.id, cardData.header, cardData.body, cardData.color, cardData.left, cardData.top, cardData.zIndex, cardData.authorInitials);
         });
 
         // Center viewport after loading initial state
@@ -335,7 +509,7 @@ function setupSocketListeners() {
     });
 
     socket.on('viewport:add', (cardData) => {
-        createViewportCard(cardData.id, cardData.header, cardData.body, cardData.color, cardData.left, cardData.top, cardData.zIndex);
+        createViewportCard(cardData.id, cardData.header, cardData.body, cardData.color, cardData.left, cardData.top, cardData.zIndex, cardData.authorInitials);
     });
 
     socket.on('viewport:move', (data) => {
@@ -354,6 +528,244 @@ function setupSocketListeners() {
             card.style.zIndex = data.zIndex;
         }
     });
+
+    // Handle full state sync (e.g., after z-index normalization)
+    socket.on('state:sync', (serverState) => {
+        // Update all viewport cards with new z-index values
+        serverState.viewportCards.forEach(cardData => {
+            const card = document.querySelector(`[data-id="${cardData.id}"]`);
+            if (card) {
+                card.style.zIndex = cardData.zIndex;
+            }
+        });
+        console.log('Z-index normalized - card stacking order preserved');
+    });
+}
+
+// Function to set up user identity event listeners (called after overlay is created)
+function setupUserIdentityListeners() {
+    const userInitialsInput = document.getElementById('user-initials');
+    const userNameInput = document.getElementById('user-name');
+    const initialsDropdown = document.getElementById('initials-dropdown');
+
+    if (!userInitialsInput || !userNameInput || !initialsDropdown) {
+        // Elements don't exist yet (no overlay), will be set up later
+        return;
+    }
+
+    let validationTimeout = null;
+
+    // Try to restore session user
+    const sessionUser = getSessionUser();
+    if (sessionUser && currentProjectId) {
+        userInitialsInput.value = sessionUser.initials;
+        userNameInput.value = sessionUser.name;
+        // Validate with server
+        validateInitials(sessionUser.initials, true);
+    } else {
+        // Show all users on initial focus
+        userInitialsInput.addEventListener('focus', function showAllUsers() {
+            if (userInitialsInput.value === '') {
+                showUserDropdown('');
+            }
+            // Remove this listener after first focus
+            userInitialsInput.removeEventListener('focus', showAllUsers);
+        });
+    }
+
+    // Handle Tab key in initials field
+    userInitialsInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Tab') {
+            const initials = userInitialsInput.value.trim().toUpperCase();
+            if (initials) {
+                const localUsers = getProjectUsers(currentProjectId);
+                const filteredUsers = localUsers.filter(user => user.initials.toUpperCase().startsWith(initials));
+
+                // If exactly one match, auto-select it
+                if (filteredUsers.length === 1) {
+                    e.preventDefault();
+                    userInitialsInput.value = filteredUsers[0].initials;
+                    initialsDropdown.classList.remove('show');
+                    validateInitials(filteredUsers[0].initials, true);
+                    // Focus will move to name field after validation enables it
+                    setTimeout(() => {
+                        if (!userNameInput.disabled) {
+                            userNameInput.focus();
+                        }
+                    }, 100);
+                }
+            }
+        } else if (e.key === 'Enter') {
+            const initials = userInitialsInput.value.trim().toUpperCase();
+            if (initials && userNameInput.value.trim()) {
+                e.preventDefault();
+                authenticateUser(initials, userNameInput.value.trim());
+            }
+        }
+    });
+
+    // Handle initials input
+    userInitialsInput.addEventListener('input', function(e) {
+        const initials = e.target.value.toUpperCase().trim();
+        e.target.value = initials;
+
+        // Clear validation states
+        userInitialsInput.classList.remove('valid', 'error');
+        userNameInput.disabled = true;
+        userNameInput.value = '';
+        userNameInput.removeAttribute('data-expected-name');
+        isUserAuthenticated = false;
+        setControlsEnabled(false);
+
+        // Show filtered dropdown if we have at least one character
+        if (initials.length > 0) {
+            showUserDropdown(initials);
+
+            // Debounced validation
+            clearTimeout(validationTimeout);
+            validationTimeout = setTimeout(() => {
+                validateInitials(initials);
+            }, 300);
+        } else {
+            // Show all users if field becomes empty
+            showUserDropdown('');
+        }
+    });
+
+    // Validate initials with server
+    function validateInitials(initials, autoFillName = false) {
+        if (!currentProjectId || !socket) return;
+
+        socket.emit('user:validate', { projectId: currentProjectId, initials }, (response) => {
+            if (response.available) {
+                userInitialsInput.classList.remove('error');
+                userInitialsInput.classList.add('valid');
+                userNameInput.disabled = false;
+
+                // If this is a returning user, auto-fill their name
+                if (response.isReturning && response.existingName) {
+                    userNameInput.value = response.existingName;
+                    userNameInput.setAttribute('data-expected-name', response.existingName);
+
+                    // If called from dropdown, auto-authenticate
+                    if (autoFillName) {
+                        authenticateUser(initials, response.existingName);
+                    }
+                } else {
+                    // New user - clear any previous name
+                    userNameInput.removeAttribute('data-expected-name');
+                }
+                // Don't auto-focus name field - let user tab to it
+            } else {
+                // Initials are actively in use
+                userInitialsInput.classList.remove('valid');
+                userInitialsInput.classList.add('error');
+                userNameInput.disabled = true;
+                userNameInput.value = '';
+                userNameInput.removeAttribute('data-expected-name');
+            }
+        });
+    }
+
+    // Show dropdown with users filtered by first letter
+    function showUserDropdown(filterInitials = '') {
+        if (!currentProjectId) return;
+
+        const localUsers = getProjectUsers(currentProjectId);
+        initialsDropdown.innerHTML = '';
+
+        // Filter users by first letter if provided
+        const filteredUsers = filterInitials
+            ? localUsers.filter(user => user.initials.startsWith(filterInitials))
+            : localUsers;
+
+        if (filteredUsers.length === 0) {
+            const emptyItem = document.createElement('div');
+            emptyItem.className = 'dropdown-item';
+            emptyItem.textContent = filterInitials ? `No users starting with "${filterInitials}"` : 'No recent users';
+            emptyItem.style.fontStyle = 'italic';
+            emptyItem.style.color = '#999';
+            initialsDropdown.appendChild(emptyItem);
+        } else {
+            filteredUsers.forEach(user => {
+                const item = document.createElement('div');
+                item.className = 'dropdown-item';
+                item.innerHTML = `<span class="dropdown-item-initials">${user.initials}</span><span class="dropdown-item-name">${user.name}</span>`;
+                item.addEventListener('click', () => {
+                    userInitialsInput.value = user.initials;
+                    initialsDropdown.classList.remove('show');
+                    validateInitials(user.initials, true);
+                });
+                initialsDropdown.appendChild(item);
+            });
+        }
+
+        initialsDropdown.classList.add('show');
+    }
+
+    // Handle name input
+    userNameInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            const initials = userInitialsInput.value.trim();
+            const name = userNameInput.value.trim();
+
+            if (initials && name) {
+                authenticateUser(initials, name);
+            }
+        }
+    });
+
+    userNameInput.addEventListener('blur', function() {
+        const initials = userInitialsInput.value.trim();
+        const name = userNameInput.value.trim();
+
+        if (initials && name && !isUserAuthenticated) {
+            authenticateUser(initials, name);
+        }
+    });
+
+    // Authenticate user with server
+    function authenticateUser(initials, name) {
+        if (!currentProjectId || !socket) return;
+
+        // Check if this is a returning user with expected name
+        const expectedName = userNameInput.getAttribute('data-expected-name');
+        if (expectedName && name !== expectedName) {
+            alert(`This user's name is "${expectedName}". Please use the correct name or choose different initials.`);
+            userNameInput.value = expectedName;
+            userNameInput.focus();
+            return;
+        }
+
+        socket.emit('user:register', { projectId: currentProjectId, initials, name }, (response) => {
+            if (response.success) {
+                currentUserInitials = initials;
+                currentUserName = name;
+                isUserAuthenticated = true;
+
+                // Save to session and localStorage
+                saveSessionUser(initials, name);
+                saveProjectUser(currentProjectId, initials, name);
+
+                // Update welcome text with user info
+                const welcomeText = document.getElementById('welcome-text');
+                if (welcomeText) {
+                    welcomeText.textContent = `Welcome to your collaborative workspace, ${name} [${initials}]`;
+                }
+
+                // Enable all controls
+                setControlsEnabled(true);
+
+                console.log(`User authenticated: ${initials} (${name})`);
+            } else {
+                alert(response.message || 'Failed to register user. Initials may have been taken.');
+                userInitialsInput.classList.add('error');
+                userNameInput.disabled = true;
+                isUserAuthenticated = false;
+                setControlsEnabled(false);
+            }
+        });
+    }
 }
 
 // Function to populate Open submenu with known projects
@@ -398,6 +810,12 @@ function populateOpenSubmenu() {
 document.addEventListener('DOMContentLoaded', function() {
     const projectNameEl = document.getElementById('project-name');
     const shareBtn = document.getElementById('share-btn');
+
+    // Initially show blocking overlay with user identity fields
+    setControlsEnabled(false);
+
+    // Set up event listeners for user identity fields (they're created dynamically in overlay)
+    setupUserIdentityListeners();
 
     // Populate Open submenu
     populateOpenSubmenu();
@@ -548,6 +966,100 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // Zoom controls with press-and-hold
+    const zoomOutBtn = document.getElementById('zoom-out-btn');
+    const centerBtn = document.getElementById('center-btn');
+    const zoomInBtn = document.getElementById('zoom-in-btn');
+
+    let zoomInterval = null;
+    const ZOOM_HOLD_DELAY = 500; // Initial delay before continuous zoom starts (ms)
+    const ZOOM_HOLD_INTERVAL = 50; // Interval between zoom steps when holding (ms)
+
+    function startContinuousZoom(zoomFunction) {
+        // Immediate first zoom
+        zoomFunction();
+
+        // Start continuous zoom after delay
+        let timeoutId = setTimeout(() => {
+            zoomInterval = setInterval(zoomFunction, ZOOM_HOLD_INTERVAL);
+        }, ZOOM_HOLD_DELAY);
+
+        return { timeoutId, intervalId: null };
+    }
+
+    function stopContinuousZoom(timers) {
+        if (timers.timeoutId) clearTimeout(timers.timeoutId);
+        if (zoomInterval) {
+            clearInterval(zoomInterval);
+            zoomInterval = null;
+        }
+    }
+
+    if (zoomOutBtn) {
+        let zoomOutTimers = {};
+
+        zoomOutBtn.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            zoomOutTimers = startContinuousZoom(zoomOut);
+        });
+
+        zoomOutBtn.addEventListener('mouseup', function(e) {
+            e.preventDefault();
+            stopContinuousZoom(zoomOutTimers);
+        });
+
+        zoomOutBtn.addEventListener('mouseleave', function(e) {
+            stopContinuousZoom(zoomOutTimers);
+        });
+
+        // Touch support
+        zoomOutBtn.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            zoomOutTimers = startContinuousZoom(zoomOut);
+        });
+
+        zoomOutBtn.addEventListener('touchend', function(e) {
+            e.preventDefault();
+            stopContinuousZoom(zoomOutTimers);
+        });
+    }
+
+    if (centerBtn) {
+        centerBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            centerView();
+        });
+    }
+
+    if (zoomInBtn) {
+        let zoomInTimers = {};
+
+        zoomInBtn.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            zoomInTimers = startContinuousZoom(zoomIn);
+        });
+
+        zoomInBtn.addEventListener('mouseup', function(e) {
+            e.preventDefault();
+            stopContinuousZoom(zoomInTimers);
+        });
+
+        zoomInBtn.addEventListener('mouseleave', function(e) {
+            stopContinuousZoom(zoomInTimers);
+        });
+
+        // Touch support
+        zoomInBtn.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            zoomInTimers = startContinuousZoom(zoomIn);
+        });
+
+        zoomInBtn.addEventListener('touchend', function(e) {
+            e.preventDefault();
+            stopContinuousZoom(zoomInTimers);
+        });
+    }
+
     // Card creation functionality with color wheel
     const addCardBtn = document.getElementById('add-card-btn');
     const modal = document.getElementById('card-modal');
@@ -688,6 +1200,9 @@ document.addEventListener('DOMContentLoaded', function() {
         e.preventDefault();
         viewport.classList.remove('drag-over');
 
+        // Update focal point to drop location
+        setFocalPointFromEvent(e);
+
         // If dropping a viewport card (moving it)
         if (draggedViewportCard) {
             const viewportRect = viewport.getBoundingClientRect();
@@ -695,8 +1210,12 @@ document.addEventListener('DOMContentLoaded', function() {
             const paddingLeft = parseInt(viewportStyle.paddingLeft);
             const paddingTop = parseInt(viewportStyle.paddingTop);
 
-            const x = e.clientX - viewportRect.left - paddingLeft + viewport.scrollLeft - offsetX;
-            const y = e.clientY - viewportRect.top - paddingTop + viewport.scrollTop - offsetY;
+            // Account for zoom level - convert screen coordinates to viewport coordinates
+            const screenX = e.clientX - viewportRect.left - paddingLeft;
+            const screenY = e.clientY - viewportRect.top - paddingTop;
+
+            const x = (screenX / currentZoom) + viewport.scrollLeft - offsetX;
+            const y = (screenY / currentZoom) + viewport.scrollTop - offsetY;
 
             socket.emit('viewport:move', {
                 id: draggedViewportCard.dataset.id,
@@ -716,8 +1235,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const paddingLeft = parseInt(viewportStyle.paddingLeft);
         const paddingTop = parseInt(viewportStyle.paddingTop);
 
-        const x = e.clientX - viewportRect.left - paddingLeft + viewport.scrollLeft - 75;
-        const y = e.clientY - viewportRect.top - paddingTop + viewport.scrollTop - 50;
+        // Account for zoom level - convert screen coordinates to viewport coordinates
+        const screenX = e.clientX - viewportRect.left - paddingLeft;
+        const screenY = e.clientY - viewportRect.top - paddingTop;
+
+        const x = (screenX / currentZoom) + viewport.scrollLeft - 75;
+        const y = (screenY / currentZoom) + viewport.scrollTop - 50;
 
         pendingCard = {
             id: generateId(),
@@ -853,7 +1376,19 @@ document.addEventListener('DOMContentLoaded', function() {
     function saveAndCloseEditModal() {
         const editingCardId = editModal.dataset.editingCardId;
         const header = editCardHeader.textContent.trim();
-        const body = editCardBody.textContent.trim();
+
+        // Extract body text preserving line breaks
+        // contenteditable creates <div> or <br> for line breaks
+        const body = editCardBody.innerHTML
+            .replace(/<div><br><\/div>/g, '\n')  // Empty lines
+            .replace(/<div>/g, '\n')              // Line breaks
+            .replace(/<br\s*\/?>/g, '\n')         // <br> tags
+            .replace(/<[^>]+>/g, '')              // Remove all other HTML tags
+            .replace(/&nbsp;/g, ' ')              // Replace &nbsp; with space
+            .replace(/&amp;/g, '&')               // Decode &amp;
+            .replace(/&lt;/g, '<')                // Decode &lt;
+            .replace(/&gt;/g, '>')                // Decode &gt;
+            .trim();
 
         if (editingCardId) {
             // Editing existing card
@@ -871,7 +1406,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 body: body,
                 color: pendingCard.color,
                 left: pendingCard.left,
-                top: pendingCard.top
+                top: pendingCard.top,
+                authorInitials: currentUserInitials
             });
             pendingCard = null;
         }

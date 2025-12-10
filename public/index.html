@@ -13,29 +13,36 @@
             <input type="text" id="project-name" class="project-name-input" value="Unnamed Project" spellcheck="false">
             <button id="share-btn" class="share-button" title="Share this project">📤 Share</button>
         </div>
-        <p>Welcome to your collaborative workspace</p>
+        <p class="welcome-text" id="welcome-text">Welcome to your collaborative workspace</p>
     </div>
 
     <div class="menu-bar">
-        <div class="menu-item">
-            <button class="menu-button">File</button>
-            <div class="dropdown-content">
-                <a href="#" id="menu-new">New</a>
-                <div class="submenu-container">
-                    <a href="#" id="menu-open" class="has-submenu">Open ›</a>
-                    <div class="submenu-content" id="open-submenu">
-                        <!-- Projects will be dynamically inserted here -->
+        <div class="menu-left">
+            <div class="menu-item">
+                <button class="menu-button">File</button>
+                <div class="dropdown-content">
+                    <a href="#" id="menu-new">New</a>
+                    <div class="submenu-container">
+                        <a href="#" id="menu-open" class="has-submenu">Open ›</a>
+                        <div class="submenu-content" id="open-submenu">
+                            <!-- Projects will be dynamically inserted here -->
+                        </div>
                     </div>
+                    <a href="#" id="menu-close">Close</a>
+                    <a href="#" id="menu-exit">Exit</a>
                 </div>
-                <a href="#" id="menu-close">Close</a>
-                <a href="#" id="menu-exit">Exit</a>
+            </div>
+            <div class="menu-item">
+                <button class="menu-button">Help</button>
+                <div class="dropdown-content">
+                    <a href="#" id="menu-about">About</a>
+                </div>
             </div>
         </div>
-        <div class="menu-item">
-            <button class="menu-button">Help</button>
-            <div class="dropdown-content">
-                <a href="#" id="menu-about">About</a>
-            </div>
+        <div class="zoom-controls">
+            <button id="zoom-out-btn" class="zoom-button" title="Zoom Out">−</button>
+            <button id="center-btn" class="zoom-button" title="Center View">⊙</button>
+            <button id="zoom-in-btn" class="zoom-button" title="Zoom In">+</button>
         </div>
     </div>
 
