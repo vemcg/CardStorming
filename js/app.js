@@ -37,8 +37,8 @@ const MAX_ZOOM = 3.0;   // 3x for accessibility
 let focalPoint = { x: 0.5, y: 0.5 }; // Normalized coordinates (0-1), default center
 
 function setZoom(zoomLevel) {
-    const viewport = document.querySelector('.viewport');
-    if (!viewport) return;
+    const viewportInner = document.querySelector('.viewport-inner');
+    if (!viewportInner) return;
 
     const oldZoom = currentZoom;
     currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel));
@@ -47,8 +47,8 @@ function setZoom(zoomLevel) {
     const originX = focalPoint.x * 100;
     const originY = focalPoint.y * 100;
 
-    viewport.style.transform = `scale(${currentZoom})`;
-    viewport.style.transformOrigin = `${originX}% ${originY}%`;
+    viewportInner.style.transform = `scale(${currentZoom})`;
+    viewportInner.style.transformOrigin = `${originX}% ${originY}%`;
 }
 
 function zoomIn() {
@@ -278,10 +278,10 @@ function closeProject() {
     }
 
     // Clear viewport and palette
-    const viewport = document.querySelector('.viewport');
+    const viewportInner = document.querySelector('.viewport-inner');
     const cardList = document.getElementById('card-list');
-    if (viewport) {
-        viewport.querySelectorAll('.viewport-card').forEach(card => card.remove());
+    if (viewportInner) {
+        viewportInner.querySelectorAll('.viewport-card').forEach(card => card.remove());
     }
     if (cardList) {
         cardList.innerHTML = '';
@@ -448,14 +448,20 @@ function setupSocketListeners() {
         card.addEventListener('dragend', handleViewportCardDragEnd);
         card.addEventListener('dblclick', handleCardDoubleClick);
 
-        viewport.appendChild(card);
+        const viewportInner = document.querySelector('.viewport-inner');
+        if (viewportInner) {
+            viewportInner.appendChild(card);
+        }
     }
 
     // WebSocket event listeners
     socket.on('state:init', (serverState) => {
         // Clear existing cards
         cardList.innerHTML = '';
-        viewport.querySelectorAll('.viewport-card').forEach(card => card.remove());
+        const viewportInner = document.querySelector('.viewport-inner');
+        if (viewportInner) {
+            viewportInner.querySelectorAll('.viewport-card').forEach(card => card.remove());
+        }
 
         // Set project name
         if (serverState.projectName) {

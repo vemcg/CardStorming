@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Spiral arm 1 - starts from top right area -->
+  <path d="M 40 4
+           C 52 6, 60 16, 60 28
+           C 60 38, 54 46, 45 50
+           C 38 53, 30 51, 26 45
+           C 23 40, 24 34, 28 31"
+        fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+
+  <!-- Spiral arm 2 - starts from bottom right area -->
+  <path d="M 60 40
+           C 58 52, 48 60, 36 60
+           C 26 60, 18 54, 14 45
+           C 11 38, 13 30, 19 26
+           C 24 23, 30 24, 33 28"
+        fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+
+  <!-- Spiral arm 3 - starts from bottom left area -->
+  <path d="M 24 60
+           C 12 58, 4 48, 4 36
+           C 4 26, 10 18, 19 14
+           C 26 11, 34 13, 38 19
+           C 41 24, 40 30, 36 33"
+        fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+
+  <!-- Spiral arm 4 - starts from top left area -->
+  <path d="M 4 24
+           C 6 12, 16 4, 28 4
+           C 38 4, 46 10, 50 19
+           C 53 26, 51 34, 45 38
+           C 40 41, 34 40, 31 36"
+        fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+</svg>

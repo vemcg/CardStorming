@@ -383,14 +383,22 @@ body {
 .viewport {
     flex: 1;
     background: white;
-    padding: 2rem;
     overflow: hidden;
     color: #333;
     position: relative;
 }
 
+/* Viewport Inner - this gets scaled */
+.viewport-inner {
+    width: 100%;
+    height: 100%;
+    padding: 2rem;
+    position: relative;
+    transform-origin: center center;
+}
+
 /* Create large scrollable work surface */
-.viewport::before {
+.viewport-inner::before {
     content: '';
     position: absolute;
     width: 20000px;
