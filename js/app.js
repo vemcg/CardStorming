@@ -37,18 +37,21 @@ const MAX_ZOOM = 3.0;   // 3x for accessibility
 let focalPoint = { x: 0.5, y: 0.5 }; // Normalized coordinates (0-1), default center
 
 function setZoom(zoomLevel) {
+    const viewport = document.querySelector('.viewport');
     const viewportContent = document.querySelector('.viewport-content');
-    if (!viewportContent) return;
+    if (!viewport || !viewportContent) return;
 
     const oldZoom = currentZoom;
     currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel));
 
-    // Calculate transform origin based on focal point (percentage coordinates)
-    const originX = focalPoint.x * 100;
-    const originY = focalPoint.y * 100;
+    // Focal point is relative to viewport (outer container)
+    // Convert it to pixels relative to viewport-content
+    const viewportRect = viewport.getBoundingClientRect();
+    const originXInViewport = focalPoint.x * viewportRect.width;
+    const originYInViewport = focalPoint.y * viewportRect.height;
 
     viewportContent.style.transform = `scale(${currentZoom})`;
-    viewportContent.style.transformOrigin = `${originX}% ${originY}%`;
+    viewportContent.style.transformOrigin = `${originXInViewport}px ${originYInViewport}px`;
 }
 
 function zoomIn() {
@@ -71,19 +74,11 @@ function centerView() {
 }
 
 function setFocalPointFromEvent(event, card = null) {
-    const viewportContent = document.querySelector('.viewport-content');
-    if (!viewportContent) return;
+    const viewport = document.querySelector('.viewport');
+    if (!viewport) return;
 
-    // Get the current bounding rect of viewport-content (which may be scaled)
-    // We need to divide by current zoom to get the unscaled rect
-    const scaledRect = viewportContent.getBoundingClientRect();
-    const rect = {
-        left: scaledRect.left,
-        top: scaledRect.top,
-        width: scaledRect.width / currentZoom,
-        height: scaledRect.height / currentZoom
-    };
-
+    // Use viewport (unscaled) for focal point calculation
+    const rect = viewport.getBoundingClientRect();
     let clientX, clientY;
 
     // If a card is provided, use its center
@@ -97,7 +92,7 @@ function setFocalPointFromEvent(event, card = null) {
         clientY = event.clientY;
     }
 
-    // Calculate normalized position (0-1) within viewport-content
+    // Calculate normalized position (0-1) within viewport
     focalPoint.x = (clientX - rect.left) / rect.width;
     focalPoint.y = (clientY - rect.top) / rect.height;
 
@@ -1219,19 +1214,18 @@ document.addEventListener('DOMContentLoaded', function() {
             const contentRect = viewportContent.getBoundingClientRect();
 
             // getComputedStyle returns the SCALED padding (already affected by transform)
-            // We need the unscaled padding value
+            // We need the unscaled padding value (2rem in the CSS)
             const contentStyle = window.getComputedStyle(viewportContent);
             const scaledPaddingLeft = parseFloat(contentStyle.paddingLeft);
             const scaledPaddingTop = parseFloat(contentStyle.paddingTop);
             const paddingLeft = scaledPaddingLeft / currentZoom;
             const paddingTop = scaledPaddingTop / currentZoom;
 
-            // Convert click position to position within the unscaled viewport-content
-            const screenX = (e.clientX - contentRect.left) / currentZoom - paddingLeft;
-            const screenY = (e.clientY - contentRect.top) / currentZoom - paddingTop;
-
-            const x = screenX + viewport.scrollLeft - offsetX;
-            const y = screenY + viewport.scrollTop - offsetY;
+            // Convert screen mouse position to unscaled position within content area
+            // contentRect is scaled, so divide by zoom to get unscaled coordinates
+            // Then subtract padding to get position relative to content origin
+            const x = (e.clientX - contentRect.left) / currentZoom - paddingLeft - offsetX;
+            const y = (e.clientY - contentRect.top) / currentZoom - paddingTop - offsetY;
 
             socket.emit('viewport:move', {
                 id: draggedViewportCard.dataset.id,
@@ -1256,12 +1250,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const paddingLeft = scaledPaddingLeft / currentZoom;
         const paddingTop = scaledPaddingTop / currentZoom;
 
-        // Convert click position to position within the unscaled viewport-content
-        const screenX = (e.clientX - contentRect.left) / currentZoom - paddingLeft;
-        const screenY = (e.clientY - contentRect.top) / currentZoom - paddingTop;
-
-        const x = screenX + viewport.scrollLeft - 75;
-        const y = screenY + viewport.scrollTop - 50;
+        // Convert screen mouse position to unscaled position within content area
+        // Subtract 75/50 to center the card under the cursor
+        const x = (e.clientX - contentRect.left) / currentZoom - paddingLeft - 75;
+        const y = (e.clientY - contentRect.top) / currentZoom - paddingTop - 50;
 
         pendingCard = {
             id: generateId(),
