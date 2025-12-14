@@ -382,14 +382,15 @@ body {
 /* Viewport */
 .viewport {
     flex: 1;
+    min-width: 0;
     background: white;
     overflow: hidden;
     color: #333;
     position: relative;
 }
 
-/* Viewport Inner - this gets scaled */
-.viewport-inner {
+/* Viewport Content - this is what gets scaled */
+.viewport-content {
     width: 100%;
     height: 100%;
     padding: 2rem;
@@ -398,7 +399,7 @@ body {
 }
 
 /* Create large scrollable work surface */
-.viewport-inner::before {
+.viewport-content::before {
     content: '';
     position: absolute;
     width: 20000px;
@@ -419,6 +420,7 @@ body {
 /* Palette */
 .palette {
     width: 200px;
+    flex-shrink: 0;
     background-color: #d3d3d3;
     border-left: 1px solid #999;
     padding: 1rem;

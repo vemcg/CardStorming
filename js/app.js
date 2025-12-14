@@ -37,8 +37,8 @@ const MAX_ZOOM = 3.0;   // 3x for accessibility
 let focalPoint = { x: 0.5, y: 0.5 }; // Normalized coordinates (0-1), default center
 
 function setZoom(zoomLevel) {
-    const viewportInner = document.querySelector('.viewport-inner');
-    if (!viewportInner) return;
+    const viewportContent = document.querySelector('.viewport-content');
+    if (!viewportContent) return;
 
     const oldZoom = currentZoom;
     currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel));
@@ -47,8 +47,8 @@ function setZoom(zoomLevel) {
     const originX = focalPoint.x * 100;
     const originY = focalPoint.y * 100;
 
-    viewportInner.style.transform = `scale(${currentZoom})`;
-    viewportInner.style.transformOrigin = `${originX}% ${originY}%`;
+    viewportContent.style.transform = `scale(${currentZoom})`;
+    viewportContent.style.transformOrigin = `${originX}% ${originY}%`;
 }
 
 function zoomIn() {
@@ -71,10 +71,19 @@ function centerView() {
 }
 
 function setFocalPointFromEvent(event, card = null) {
-    const viewport = document.querySelector('.viewport');
-    if (!viewport) return;
+    const viewportContent = document.querySelector('.viewport-content');
+    if (!viewportContent) return;
 
-    const rect = viewport.getBoundingClientRect();
+    // Get the current bounding rect of viewport-content (which may be scaled)
+    // We need to divide by current zoom to get the unscaled rect
+    const scaledRect = viewportContent.getBoundingClientRect();
+    const rect = {
+        left: scaledRect.left,
+        top: scaledRect.top,
+        width: scaledRect.width / currentZoom,
+        height: scaledRect.height / currentZoom
+    };
+
     let clientX, clientY;
 
     // If a card is provided, use its center
@@ -88,7 +97,7 @@ function setFocalPointFromEvent(event, card = null) {
         clientY = event.clientY;
     }
 
-    // Calculate normalized position (0-1) within viewport
+    // Calculate normalized position (0-1) within viewport-content
     focalPoint.x = (clientX - rect.left) / rect.width;
     focalPoint.y = (clientY - rect.top) / rect.height;
 
@@ -278,10 +287,10 @@ function closeProject() {
     }
 
     // Clear viewport and palette
-    const viewportInner = document.querySelector('.viewport-inner');
+    const viewportContent = document.querySelector('.viewport-content');
     const cardList = document.getElementById('card-list');
-    if (viewportInner) {
-        viewportInner.querySelectorAll('.viewport-card').forEach(card => card.remove());
+    if (viewportContent) {
+        viewportContent.querySelectorAll('.viewport-card').forEach(card => card.remove());
     }
     if (cardList) {
         cardList.innerHTML = '';
@@ -313,6 +322,7 @@ function setupSocketListeners() {
     const projectNameEl = document.getElementById('project-name');
     const cardList = document.getElementById('card-list');
     const viewport = document.querySelector('.viewport');
+    const viewportContent = document.querySelector('.viewport-content');
 
     // Work surface offset - allows negative coordinates by offsetting the origin
     const WORK_SURFACE_OFFSET = 10000; // pixels
@@ -448,20 +458,14 @@ function setupSocketListeners() {
         card.addEventListener('dragend', handleViewportCardDragEnd);
         card.addEventListener('dblclick', handleCardDoubleClick);
 
-        const viewportInner = document.querySelector('.viewport-inner');
-        if (viewportInner) {
-            viewportInner.appendChild(card);
-        }
+        viewportContent.appendChild(card);
     }
 
     // WebSocket event listeners
     socket.on('state:init', (serverState) => {
         // Clear existing cards
         cardList.innerHTML = '';
-        const viewportInner = document.querySelector('.viewport-inner');
-        if (viewportInner) {
-            viewportInner.querySelectorAll('.viewport-card').forEach(card => card.remove());
-        }
+        viewportContent.querySelectorAll('.viewport-card').forEach(card => card.remove());
 
         // Set project name
         if (serverState.projectName) {
@@ -1211,17 +1215,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // If dropping a viewport card (moving it)
         if (draggedViewportCard) {
-            const viewportRect = viewport.getBoundingClientRect();
-            const viewportStyle = window.getComputedStyle(viewport);
-            const paddingLeft = parseInt(viewportStyle.paddingLeft);
-            const paddingTop = parseInt(viewportStyle.paddingTop);
+            const viewportContent = document.querySelector('.viewport-content');
+            const contentRect = viewportContent.getBoundingClientRect();
 
-            // Account for zoom level - convert screen coordinates to viewport coordinates
-            const screenX = e.clientX - viewportRect.left - paddingLeft;
-            const screenY = e.clientY - viewportRect.top - paddingTop;
+            // getComputedStyle returns the SCALED padding (already affected by transform)
+            // We need the unscaled padding value
+            const contentStyle = window.getComputedStyle(viewportContent);
+            const scaledPaddingLeft = parseFloat(contentStyle.paddingLeft);
+            const scaledPaddingTop = parseFloat(contentStyle.paddingTop);
+            const paddingLeft = scaledPaddingLeft / currentZoom;
+            const paddingTop = scaledPaddingTop / currentZoom;
 
-            const x = (screenX / currentZoom) + viewport.scrollLeft - offsetX;
-            const y = (screenY / currentZoom) + viewport.scrollTop - offsetY;
+            // Convert click position to position within the unscaled viewport-content
+            const screenX = (e.clientX - contentRect.left) / currentZoom - paddingLeft;
+            const screenY = (e.clientY - contentRect.top) / currentZoom - paddingTop;
+
+            const x = screenX + viewport.scrollLeft - offsetX;
+            const y = screenY + viewport.scrollTop - offsetY;
 
             socket.emit('viewport:move', {
                 id: draggedViewportCard.dataset.id,
@@ -1236,17 +1246,22 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!dataStr) return;
 
         const data = JSON.parse(dataStr);
-        const viewportRect = viewport.getBoundingClientRect();
-        const viewportStyle = window.getComputedStyle(viewport);
-        const paddingLeft = parseInt(viewportStyle.paddingLeft);
-        const paddingTop = parseInt(viewportStyle.paddingTop);
+        const viewportContent = document.querySelector('.viewport-content');
+        const contentRect = viewportContent.getBoundingClientRect();
 
-        // Account for zoom level - convert screen coordinates to viewport coordinates
-        const screenX = e.clientX - viewportRect.left - paddingLeft;
-        const screenY = e.clientY - viewportRect.top - paddingTop;
+        // getComputedStyle returns the SCALED padding
+        const contentStyle = window.getComputedStyle(viewportContent);
+        const scaledPaddingLeft = parseFloat(contentStyle.paddingLeft);
+        const scaledPaddingTop = parseFloat(contentStyle.paddingTop);
+        const paddingLeft = scaledPaddingLeft / currentZoom;
+        const paddingTop = scaledPaddingTop / currentZoom;
 
-        const x = (screenX / currentZoom) + viewport.scrollLeft - 75;
-        const y = (screenY / currentZoom) + viewport.scrollTop - 50;
+        // Convert click position to position within the unscaled viewport-content
+        const screenX = (e.clientX - contentRect.left) / currentZoom - paddingLeft;
+        const screenY = (e.clientY - contentRect.top) / currentZoom - paddingTop;
+
+        const x = screenX + viewport.scrollLeft - 75;
+        const y = screenY + viewport.scrollTop - 50;
 
         pendingCard = {
             id: generateId(),
