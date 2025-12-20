@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CardStorming</title>
-    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
     <div class="heading">
@@ -35,11 +35,18 @@
             <div class="menu-item">
                 <button class="menu-button">Help</button>
                 <div class="dropdown-content">
+                    <a href="#" id="menu-show-log">Show Log</a>
                     <a href="#" id="menu-about">About</a>
                 </div>
             </div>
         </div>
         <div class="zoom-controls">
+            <button id="zoom-search-btn" class="zoom-button zoom-icon-button" title="Zoom to Fit">
+                <img src="/images/zoom-in-search.svg" alt="Zoom to Fit" class="zoom-icon">
+            </button>
+            <button id="wormhole-btn" class="zoom-button zoom-icon-button" title="Wormhole">
+                <img src="/images/wormhole.svg" alt="Wormhole" class="zoom-icon">
+            </button>
             <button id="zoom-out-btn" class="zoom-button" title="Zoom Out">−</button>
             <button id="center-btn" class="zoom-button" title="Center View">⊙</button>
             <button id="zoom-in-btn" class="zoom-button" title="Zoom In">+</button>
@@ -51,8 +58,10 @@
             <div class="viewport-content"></div>
         </div>
         <div class="palette">
-            <button id="add-card-btn" class="add-card-button">+</button>
-            <h3>Palette</h3>
+            <button id="add-card-btn" class="add-card-button">
+                <span class="plus-sign">+</span>
+                <img src="/images/stacked-cards.svg" alt="Cards" class="cards-icon">
+            </button>
             <div id="card-list"></div>
         </div>
     </div>
@@ -85,6 +94,7 @@
                 <div class="edit-card-header" id="edit-card-header" contenteditable="true" data-placeholder="Header"></div>
                 <div class="edit-card-body" id="edit-card-body" contenteditable="true" data-placeholder="Body text..."></div>
             </div>
+            <button id="edit-delete" class="edit-delete-btn">&#128465;</button>
             <button id="edit-save" class="edit-save-btn">&#10003;</button>
         </div>
     </div>
@@ -102,7 +112,19 @@
         </div>
     </div>
 
+    <!-- Debug Log Dialog -->
+    <div id="log-modal" class="modal">
+        <div class="modal-content log-modal-content">
+            <h2>Debug Log</h2>
+            <div id="log-content" class="log-content"></div>
+            <div class="modal-buttons">
+                <button id="log-clear">Clear Log</button>
+                <button id="log-close">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/socket.io/socket.io.js"></script>
-    <script src="../js/app.js"></script>
+    <script src="/js/app.js"></script>
 </body>
 </html>

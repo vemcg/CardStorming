@@ -1,6 +1,62 @@
 // CardStorming application
 console.log('CardStorming initialized');
 
+// Debug logging system
+const debugLog = {
+    entries: [],
+    maxEntries: 500,
+
+    log(level, message, data = null) {
+        const timestamp = new Date().toISOString();
+        const entry = { timestamp, level, message, data };
+        this.entries.push(entry);
+
+        // Keep only last maxEntries
+        if (this.entries.length > this.maxEntries) {
+            this.entries.shift();
+        }
+
+        // Also log to console
+        const consoleMsg = `[${level.toUpperCase()}] ${message}`;
+        if (data) {
+            console.log(consoleMsg, data);
+        } else {
+            console.log(consoleMsg);
+        }
+
+        // Update log display if visible
+        this.updateDisplay();
+    },
+
+    info(message, data) { this.log('info', message, data); },
+    warn(message, data) { this.log('warn', message, data); },
+    error(message, data) { this.log('error', message, data); },
+
+    clear() {
+        this.entries = [];
+        this.updateDisplay();
+    },
+
+    updateDisplay() {
+        const logContent = document.getElementById('log-content');
+        if (!logContent) return;
+
+        const logModal = document.getElementById('log-modal');
+        if (logModal.style.display !== 'block') return;
+
+        logContent.innerHTML = this.entries.map(entry => {
+            const dataStr = entry.data ? '\n' + JSON.stringify(entry.data, null, 2) : '';
+            return `<div class="log-entry">
+                <span class="log-timestamp">${entry.timestamp}</span>
+                <span class="log-level-${entry.level}"> [${entry.level.toUpperCase()}]</span> ${entry.message}${dataStr}
+            </div>`;
+        }).join('');
+
+        // Auto-scroll to bottom
+        logContent.scrollTop = logContent.scrollHeight;
+    }
+};
+
 // Project management
 const adjectives = ['Galloping', 'Remorseful', 'Bouncing', 'Thoughtful', 'Dancing', 'Mighty', 'Gentle', 'Swift', 'Brave', 'Clever', 'Happy', 'Curious', 'Playful', 'Wise', 'Bold'];
 const nouns = ['Giraffe', 'Rhinoceros', 'Elephant', 'Penguin', 'Dolphin', 'Tiger', 'Panda', 'Eagle', 'Otter', 'Fox', 'Koala', 'Falcon', 'Walrus', 'Leopard', 'Turtle'];
@@ -36,22 +92,48 @@ const MIN_ZOOM = 0.1;  // Very zoomed out - see lots of workspace
 const MAX_ZOOM = 3.0;   // 3x for accessibility
 let focalPoint = { x: 0.5, y: 0.5 }; // Normalized coordinates (0-1), default center
 
+// Grid snapping
+const GRID_SIZE = 25; // pixels
+
+// Snap coordinate to grid
+function snapToGrid(value) {
+    return Math.round(value / GRID_SIZE) * GRID_SIZE;
+}
+
 function setZoom(zoomLevel) {
-    const viewport = document.querySelector('.viewport');
     const viewportContent = document.querySelector('.viewport-content');
-    if (!viewport || !viewportContent) return;
+    if (!viewportContent) return;
 
     const oldZoom = currentZoom;
     currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel));
 
-    // Focal point is relative to viewport (outer container)
-    // Convert it to pixels relative to viewport-content
-    const viewportRect = viewport.getBoundingClientRect();
-    const originXInViewport = focalPoint.x * viewportRect.width;
-    const originYInViewport = focalPoint.y * viewportRect.height;
+    // Calculate transform origin based on focal point (percentage coordinates)
+    const originX = focalPoint.x * 100;
+    const originY = focalPoint.y * 100;
 
-    viewportContent.style.transform = `scale(${currentZoom})`;
-    viewportContent.style.transformOrigin = `${originXInViewport}px ${originYInViewport}px`;
+    // Get current pan offset from the panning system
+    // We need to access these variables which are defined in setupSocketListeners scope
+    // For now, parse it from the current transform if it exists
+    let panX = 0, panY = 0;
+    const currentTransform = viewportContent.style.transform;
+    if (currentTransform && currentTransform.includes('translate')) {
+        const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+        if (match) {
+            panX = parseFloat(match[1]);
+            panY = parseFloat(match[2]);
+        }
+    }
+
+    viewportContent.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+    viewportContent.style.transformOrigin = `${originX}% ${originY}%`;
+
+    debugLog.info('setZoom', {
+        oldZoom,
+        newZoom: currentZoom,
+        focalPoint: { ...focalPoint },
+        originPercent: { x: originX, y: originY },
+        pan: { x: panX, y: panY }
+    });
 }
 
 function zoomIn() {
@@ -63,8 +145,8 @@ function zoomOut() {
 }
 
 function centerView() {
-    const viewport = document.querySelector('.viewport');
-    if (!viewport) return;
+    const viewportContent = document.querySelector('.viewport-content');
+    if (!viewportContent) return;
 
     // Reset focal point to center of workspace
     focalPoint = { x: 0.5, y: 0.5 };
@@ -75,10 +157,12 @@ function centerView() {
 
 function setFocalPointFromEvent(event, card = null) {
     const viewport = document.querySelector('.viewport');
-    if (!viewport) return;
+    const viewportContent = document.querySelector('.viewport-content');
+    if (!viewport || !viewportContent) return;
 
-    // Use viewport (unscaled) for focal point calculation
     const rect = viewport.getBoundingClientRect();
+    const contentRect = viewportContent.getBoundingClientRect();
+
     let clientX, clientY;
 
     // If a card is provided, use its center
@@ -92,13 +176,25 @@ function setFocalPointFromEvent(event, card = null) {
         clientY = event.clientY;
     }
 
-    // Calculate normalized position (0-1) within viewport
-    focalPoint.x = (clientX - rect.left) / rect.width;
-    focalPoint.y = (clientY - rect.top) / rect.height;
+    // Calculate position relative to the SCALED viewport-content
+    const contentX = clientX - contentRect.left;
+    const contentY = clientY - contentRect.top;
+
+    // Normalize to 0-1 within the scaled content area
+    focalPoint.x = contentX / contentRect.width;
+    focalPoint.y = contentY / contentRect.height;
 
     // Clamp to valid range
     focalPoint.x = Math.max(0, Math.min(1, focalPoint.x));
     focalPoint.y = Math.max(0, Math.min(1, focalPoint.y));
+
+    debugLog.info('setFocalPointFromEvent', {
+        viewportSize: { width: rect.width, height: rect.height },
+        contentSize: { width: contentRect.width, height: contentRect.height },
+        screenPos: { x: clientX, y: clientY },
+        contentPos: { x: contentX, y: contentY },
+        focalPoint: { ...focalPoint }
+    });
 }
 
 // Calculate luminance and determine text color for readability
@@ -224,7 +320,7 @@ function setControlsEnabled(enabled) {
                                 <input type="text" id="user-initials" class="user-initials-input" name="user-initials-${Date.now()}" maxlength="4" placeholder="initials" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-form-type="other">
                                 <div id="initials-dropdown" class="initials-dropdown"></div>
                             </div>
-                            <input type="text" id="user-name" class="user-name-input" name="user-name-${Date.now()}" disabled placeholder="name" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-form-type="other">
+                            <input type="text" id="user-name" class="user-name-input" name="user-name-${Date.now()}" placeholder="name" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-form-type="other">
                         </div>
                     </form>
                 </div>
@@ -232,6 +328,9 @@ function setControlsEnabled(enabled) {
 
             overlay.appendChild(identityPanel);
             document.body.appendChild(overlay);
+
+            // Set up listeners right after creating the overlay
+            setupUserIdentityListeners();
         }
     } else {
         // Remove overlay if it exists
@@ -247,6 +346,11 @@ function openProject(projectId) {
     setProjectIdInURL(projectId);
     isProjectOpen = true;
 
+    // Reset authentication state for new project
+    isUserAuthenticated = false;
+    currentUserInitials = null;
+    currentUserName = null;
+
     // Initialize Socket.IO connection with project ID
     if (socket) {
         socket.disconnect();
@@ -258,8 +362,46 @@ function openProject(projectId) {
     // Set up socket event listeners
     setupSocketListeners();
 
-    // Set up user identity listeners now that project is open
-    setupUserIdentityListeners();
+    // Check if we have a known identity for this project
+    const projectUsers = getProjectUsers(projectId);
+    const sessionUser = getSessionUser();
+
+    if (projectUsers.length > 0) {
+        // We've used this project before - auto-authenticate silently
+        const mostRecentUser = projectUsers[0];
+        currentUserInitials = mostRecentUser.initials;
+        currentUserName = mostRecentUser.name;
+
+        // Authenticate with server
+        socket.emit('user:register', {
+            projectId: currentProjectId,
+            initials: mostRecentUser.initials,
+            name: mostRecentUser.name
+        }, (response) => {
+            if (response.success) {
+                isUserAuthenticated = true;
+                saveSessionUser(mostRecentUser.initials, mostRecentUser.name);
+
+                // Update welcome text
+                const welcomeText = document.getElementById('welcome-text');
+                if (welcomeText) {
+                    welcomeText.textContent = `Welcome to your collaborative workspace, ${mostRecentUser.name} [${mostRecentUser.initials}]`;
+                }
+
+                // Enable controls without showing dialog
+                setControlsEnabled(true);
+            } else {
+                // Authentication failed - show dialog
+                setControlsEnabled(false);
+            }
+        });
+    } else if (sessionUser) {
+        // New project but we have session defaults - show dialog with defaults
+        setControlsEnabled(false);
+    } else {
+        // Completely new user - show dialog
+        setControlsEnabled(false);
+    }
 
     // Update the Open submenu (project will be added to known projects when state:init fires)
     setTimeout(function() {
@@ -319,15 +461,6 @@ function setupSocketListeners() {
     const viewport = document.querySelector('.viewport');
     const viewportContent = document.querySelector('.viewport-content');
 
-    // Work surface offset - allows negative coordinates by offsetting the origin
-    const WORK_SURFACE_OFFSET = 10000; // pixels
-
-    // Center viewport on work surface origin (0,0)
-    function centerViewport() {
-        viewport.scrollLeft = WORK_SURFACE_OFFSET - viewport.clientWidth / 2;
-        viewport.scrollTop = WORK_SURFACE_OFFSET - viewport.clientHeight / 2;
-    }
-
     // Function to update card content
     function updateCardContent(card, header, body) {
         const headerDiv = document.createElement('div');
@@ -350,6 +483,23 @@ function setupSocketListeners() {
 
     // Drag handlers
     function handleDragStart(e) {
+        // Create custom drag ghost with gradient
+        const ghost = e.target.cloneNode(true);
+        ghost.classList.add('drag-ghost');
+        ghost.style.width = e.target.offsetWidth + 'px';
+        ghost.style.height = e.target.offsetHeight + 'px';
+        document.body.appendChild(ghost);
+
+        // Set the custom drag image
+        e.dataTransfer.setDragImage(ghost, 0, 0);
+
+        // Clean up the ghost after a brief moment
+        setTimeout(() => {
+            if (ghost.parentNode) {
+                ghost.parentNode.removeChild(ghost);
+            }
+        }, 0);
+
         e.target.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'copy';
         e.dataTransfer.setData('text/plain', JSON.stringify({
@@ -362,25 +512,14 @@ function setupSocketListeners() {
         e.target.classList.remove('dragging');
     }
 
-    function handleViewportCardDragStart(e) {
-        e.currentTarget.dragOffsetX = e.clientX - e.currentTarget.getBoundingClientRect().left;
-        e.currentTarget.dragOffsetY = e.clientY - e.currentTarget.getBoundingClientRect().top;
-        e.currentTarget.style.opacity = '0.5';
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/html', '');
-    }
-
-    function handleViewportCardDragEnd(e) {
-        e.currentTarget.style.opacity = '1';
-    }
-
     function handleCardDoubleClick(e) {
         e.preventDefault();
 
         const card = e.currentTarget;
 
-        // Update focal point to center of card
+        // Update focal point to center of card for future zooming
         setFocalPointFromEvent(e, card);
+
         const editModal = document.getElementById('edit-modal');
         const editCardVisual = document.getElementById('edit-card-visual');
         const editCardHeader = document.getElementById('edit-card-header');
@@ -429,6 +568,17 @@ function setupSocketListeners() {
 
     // Create a viewport card
     function createViewportCard(id, header, body, color, left, top, zIndex, authorInitials) {
+        debugLog.info('createViewportCard called', {
+            id,
+            header,
+            body,
+            color,
+            left,
+            top,
+            zIndex,
+            authorInitials
+        });
+
         const card = document.createElement('div');
         card.className = 'viewport-card';
         card.dataset.id = id;
@@ -449,11 +599,19 @@ function setupSocketListeners() {
         }
 
         card.draggable = true;
-        card.addEventListener('dragstart', handleViewportCardDragStart);
-        card.addEventListener('dragend', handleViewportCardDragEnd);
         card.addEventListener('dblclick', handleCardDoubleClick);
 
         viewportContent.appendChild(card);
+
+        debugLog.info('Card appended to viewport', {
+            id,
+            cardRect: card.getBoundingClientRect(),
+            computedStyle: {
+                left: card.style.left,
+                top: card.style.top,
+                transform: window.getComputedStyle(card).transform
+            }
+        });
     }
 
     // WebSocket event listeners
@@ -493,9 +651,6 @@ function setupSocketListeners() {
         serverState.viewportCards.forEach(cardData => {
             createViewportCard(cardData.id, cardData.header, cardData.body, cardData.color, cardData.left, cardData.top, cardData.zIndex, cardData.authorInitials);
         });
-
-        // Center viewport after loading initial state
-        centerViewport();
     });
 
     socket.on('project:renamed', (data) => {
@@ -560,15 +715,43 @@ function setupUserIdentityListeners() {
 
     let validationTimeout = null;
 
-    // Try to restore session user
-    const sessionUser = getSessionUser();
-    if (sessionUser && currentProjectId) {
-        userInitialsInput.value = sessionUser.initials;
-        userNameInput.value = sessionUser.name;
-        // Validate with server
-        validateInitials(sessionUser.initials, true);
+    // Initially disable name field until initials are validated
+    userNameInput.disabled = true;
+
+    // Priority: project-specific user > session user > show dropdown
+    if (currentProjectId) {
+        // Check if this user has contributed to this specific project before
+        const projectUsers = getProjectUsers(currentProjectId);
+        if (projectUsers.length > 0) {
+            // Use the most recent user for THIS project
+            const mostRecentUser = projectUsers[0];
+            userInitialsInput.value = mostRecentUser.initials;
+            userNameInput.value = mostRecentUser.name;
+            userNameInput.disabled = false;
+            // Validate with server and auto-authenticate
+            validateInitials(mostRecentUser.initials, true);
+        } else {
+            // This is a new project - try session user as fallback
+            const sessionUser = getSessionUser();
+            if (sessionUser) {
+                userInitialsInput.value = sessionUser.initials;
+                userNameInput.value = sessionUser.name;
+                userNameInput.disabled = false;
+                // Validate with server and auto-authenticate
+                validateInitials(sessionUser.initials, true);
+            } else {
+                // Brand new user - show dropdown on focus
+                userInitialsInput.addEventListener('focus', function showAllUsers() {
+                    if (userInitialsInput.value === '') {
+                        showUserDropdown('');
+                    }
+                    // Remove this listener after first focus
+                    userInitialsInput.removeEventListener('focus', showAllUsers);
+                });
+            }
+        }
     } else {
-        // Show all users on initial focus
+        // No project open yet - show dropdown on focus
         userInitialsInput.addEventListener('focus', function showAllUsers() {
             if (userInitialsInput.value === '') {
                 showUserDropdown('');
@@ -816,12 +999,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const projectNameEl = document.getElementById('project-name');
     const shareBtn = document.getElementById('share-btn');
 
-    // Initially show blocking overlay with user identity fields
-    setControlsEnabled(false);
-
-    // Set up event listeners for user identity fields (they're created dynamically in overlay)
-    setupUserIdentityListeners();
-
     // Populate Open submenu
     populateOpenSubmenu();
 
@@ -875,6 +1052,39 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    // Show Log menu item
+    const showLogMenuItem = document.getElementById('menu-show-log');
+    const logModal = document.getElementById('log-modal');
+    const logClearBtn = document.getElementById('log-clear');
+    const logCloseBtn = document.getElementById('log-close');
+
+    if (showLogMenuItem) {
+        showLogMenuItem.addEventListener('click', function(e) {
+            e.preventDefault();
+            logModal.style.display = 'block';
+            debugLog.updateDisplay();
+        });
+    }
+
+    if (logClearBtn) {
+        logClearBtn.addEventListener('click', function() {
+            debugLog.clear();
+        });
+    }
+
+    if (logCloseBtn) {
+        logCloseBtn.addEventListener('click', function() {
+            logModal.style.display = 'none';
+        });
+    }
+
+    // Close log modal when clicking outside
+    window.addEventListener('click', function(event) {
+        if (event.target === logModal) {
+            logModal.style.display = 'none';
+        }
+    });
 
     // About menu item
     const aboutMenuItem = document.getElementById('menu-about');
@@ -980,13 +1190,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const ZOOM_HOLD_DELAY = 500; // Initial delay before continuous zoom starts (ms)
     const ZOOM_HOLD_INTERVAL = 50; // Interval between zoom steps when holding (ms)
 
-    function startContinuousZoom(zoomFunction) {
+    function startContinuousZoom(zoomFunction, event) {
         // Immediate first zoom
-        zoomFunction();
+        zoomFunction(event);
 
-        // Start continuous zoom after delay
+        // Start continuous zoom after delay (no event for continuous - zoom to center)
         let timeoutId = setTimeout(() => {
-            zoomInterval = setInterval(zoomFunction, ZOOM_HOLD_INTERVAL);
+            zoomInterval = setInterval(() => zoomFunction(), ZOOM_HOLD_INTERVAL);
         }, ZOOM_HOLD_DELAY);
 
         return { timeoutId, intervalId: null };
@@ -1005,7 +1215,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         zoomOutBtn.addEventListener('mousedown', function(e) {
             e.preventDefault();
-            zoomOutTimers = startContinuousZoom(zoomOut);
+            zoomOutTimers = startContinuousZoom(zoomOut, e);
         });
 
         zoomOutBtn.addEventListener('mouseup', function(e) {
@@ -1020,7 +1230,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Touch support
         zoomOutBtn.addEventListener('touchstart', function(e) {
             e.preventDefault();
-            zoomOutTimers = startContinuousZoom(zoomOut);
+            zoomOutTimers = startContinuousZoom(zoomOut, e);
         });
 
         zoomOutBtn.addEventListener('touchend', function(e) {
@@ -1041,7 +1251,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         zoomInBtn.addEventListener('mousedown', function(e) {
             e.preventDefault();
-            zoomInTimers = startContinuousZoom(zoomIn);
+            zoomInTimers = startContinuousZoom(zoomIn, e);
         });
 
         zoomInBtn.addEventListener('mouseup', function(e) {
@@ -1056,7 +1266,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Touch support
         zoomInBtn.addEventListener('touchstart', function(e) {
             e.preventDefault();
-            zoomInTimers = startContinuousZoom(zoomIn);
+            zoomInTimers = startContinuousZoom(zoomIn, e);
         });
 
         zoomInBtn.addEventListener('touchend', function(e) {
@@ -1194,11 +1404,52 @@ document.addEventListener('DOMContentLoaded', function() {
     // Card edit modal elements
     const editModal = document.getElementById('edit-modal');
     const editCloseBtn = document.getElementById('edit-close');
+    const editDeleteBtn = document.getElementById('edit-delete');
     const editSaveBtn = document.getElementById('edit-save');
     const editCardVisual = document.getElementById('edit-card-visual');
     const editCardHeader = document.getElementById('edit-card-header');
     const editCardBody = document.getElementById('edit-card-body');
     let pendingCard = null;
+
+    // Convert screen coordinates to workspace coordinates
+    function screenToWorkspace(screenX, screenY) {
+        const viewport = document.querySelector('.viewport');
+        const viewportContent = document.querySelector('.viewport-content');
+        const rect = viewport.getBoundingClientRect();
+        const viewportStyle = window.getComputedStyle(viewport);
+        const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+        const paddingTop = parseFloat(viewportStyle.paddingTop);
+
+        // Get current pan offset from viewport-content transform
+        let panX = 0, panY = 0;
+        if (viewportContent) {
+            const currentTransform = viewportContent.style.transform;
+            if (currentTransform && currentTransform.includes('translate')) {
+                const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+                if (match) {
+                    panX = parseFloat(match[1]);
+                    panY = parseFloat(match[2]);
+                }
+            }
+        }
+
+        // Get position relative to viewport, accounting for padding, pan, and zoom
+        // Formula: (screen - viewportOrigin - padding - pan) / zoom
+        const contentX = (screenX - rect.left - paddingLeft - panX) / currentZoom;
+        const contentY = (screenY - rect.top - paddingTop - panY) / currentZoom;
+
+        debugLog.info('screenToWorkspace', {
+            screenX,
+            screenY,
+            viewportRect: { left: rect.left, top: rect.top },
+            padding: { left: paddingLeft, top: paddingTop },
+            pan: { x: panX, y: panY },
+            currentZoom,
+            result: { x: contentX, y: contentY }
+        });
+
+        return { x: contentX, y: contentY };
+    }
 
     // Handle drop events (both new cards and moving existing cards)
     viewport.addEventListener('drop', function(e) {
@@ -1208,29 +1459,38 @@ document.addEventListener('DOMContentLoaded', function() {
         // Update focal point to drop location
         setFocalPointFromEvent(e);
 
+        debugLog.info('Drop event', {
+            clientX: e.clientX,
+            clientY: e.clientY,
+            isDraggingViewportCard: !!draggedViewportCard
+        });
+
         // If dropping a viewport card (moving it)
         if (draggedViewportCard) {
-            const viewportContent = document.querySelector('.viewport-content');
-            const contentRect = viewportContent.getBoundingClientRect();
+            // Subtract the screen-space offset from the drop position before converting
+            // This gives us the position where the top-left corner of the card should be
+            const adjustedScreenX = e.clientX - offsetX;
+            const adjustedScreenY = e.clientY - offsetY;
 
-            // getComputedStyle returns the SCALED padding (already affected by transform)
-            // We need the unscaled padding value (2rem in the CSS)
-            const contentStyle = window.getComputedStyle(viewportContent);
-            const scaledPaddingLeft = parseFloat(contentStyle.paddingLeft);
-            const scaledPaddingTop = parseFloat(contentStyle.paddingTop);
-            const paddingLeft = scaledPaddingLeft / currentZoom;
-            const paddingTop = scaledPaddingTop / currentZoom;
+            const finalPos = screenToWorkspace(adjustedScreenX, adjustedScreenY);
 
-            // Convert screen mouse position to unscaled position within content area
-            // contentRect is scaled, so divide by zoom to get unscaled coordinates
-            // Then subtract padding to get position relative to content origin
-            const x = (e.clientX - contentRect.left) / currentZoom - paddingLeft - offsetX;
-            const y = (e.clientY - contentRect.top) / currentZoom - paddingTop - offsetY;
+            // Snap to grid
+            const snappedX = snapToGrid(finalPos.x);
+            const snappedY = snapToGrid(finalPos.y);
+
+            debugLog.info('Moving existing card', {
+                cardId: draggedViewportCard.dataset.id,
+                screenPos: { x: e.clientX, y: e.clientY },
+                offset: { x: offsetX, y: offsetY },
+                adjustedScreen: { x: adjustedScreenX, y: adjustedScreenY },
+                finalPos,
+                snapped: { x: snappedX, y: snappedY }
+            });
 
             socket.emit('viewport:move', {
                 id: draggedViewportCard.dataset.id,
-                left: x + 'px',
-                top: y + 'px'
+                left: snappedX + 'px',
+                top: snappedY + 'px'
             });
             return;
         }
@@ -1240,20 +1500,15 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!dataStr) return;
 
         const data = JSON.parse(dataStr);
-        const viewportContent = document.querySelector('.viewport-content');
-        const contentRect = viewportContent.getBoundingClientRect();
+        const dropPos = screenToWorkspace(e.clientX, e.clientY);
 
-        // getComputedStyle returns the SCALED padding
-        const contentStyle = window.getComputedStyle(viewportContent);
-        const scaledPaddingLeft = parseFloat(contentStyle.paddingLeft);
-        const scaledPaddingTop = parseFloat(contentStyle.paddingTop);
-        const paddingLeft = scaledPaddingLeft / currentZoom;
-        const paddingTop = scaledPaddingTop / currentZoom;
+        // Center the card under cursor (150px wide, 100px tall)
+        let x = dropPos.x - 75;
+        let y = dropPos.y - 50;
 
-        // Convert screen mouse position to unscaled position within content area
-        // Subtract 75/50 to center the card under the cursor
-        const x = (e.clientX - contentRect.left) / currentZoom - paddingLeft - 75;
-        const y = (e.clientY - contentRect.top) / currentZoom - paddingTop - 50;
+        // Snap to grid
+        x = snapToGrid(x);
+        y = snapToGrid(y);
 
         pendingCard = {
             id: generateId(),
@@ -1262,6 +1517,13 @@ document.addEventListener('DOMContentLoaded', function() {
             left: x + 'px',
             top: y + 'px'
         };
+
+        debugLog.info('Creating new card', {
+            dropPos,
+            centered: { x, y },
+            snapped: { x, y },
+            pendingCard
+        });
 
         editCardHeader.textContent = '';
         editCardBody.textContent = '';
@@ -1275,36 +1537,59 @@ document.addEventListener('DOMContentLoaded', function() {
     viewport.addEventListener('dragstart', function(e) {
         if (e.target.classList.contains('viewport-card')) {
             draggedViewportCard = e.target;
-            const rect = e.target.getBoundingClientRect();
-            offsetX = e.clientX - rect.left;
-            offsetY = e.clientY - rect.top;
-            e.target.style.opacity = '0.5';
+            // Lock cursor to top-left corner for predictable grid snapping
+            offsetX = 0;
+            offsetY = 0;
+
+            // Create custom drag ghost with gradient
+            const ghost = e.target.cloneNode(true);
+            ghost.classList.add('drag-ghost');
+            ghost.style.width = e.target.offsetWidth + 'px';
+            ghost.style.height = e.target.offsetHeight + 'px';
+            document.body.appendChild(ghost);
+
+            // Set the custom drag image
+            e.dataTransfer.setDragImage(ghost, 0, 0);
+
+            // Clean up the ghost after a brief moment
+            setTimeout(() => {
+                if (ghost.parentNode) {
+                    ghost.parentNode.removeChild(ghost);
+                }
+            }, 0);
+
+            // Add dragging class to original card
+            e.target.classList.add('dragging');
         }
-    }, true);
+    }, false);
 
     viewport.addEventListener('dragend', function(e) {
         if (e.target.classList.contains('viewport-card')) {
-            e.target.style.opacity = '1';
+            e.target.classList.remove('dragging');
             draggedViewportCard = null;
         }
-    }, true);
+    }, false);
 
     // Viewport panning (click and drag to move view)
     let isPanning = false;
     let panStartX = 0;
     let panStartY = 0;
-    let panScrollLeft = 0;
-    let panScrollTop = 0;
+    let panOffsetX = 0;
+    let panOffsetY = 0;
+    let currentPanX = 0;
+    let currentPanY = 0;
 
     viewport.addEventListener('mousedown', function(e) {
-        // Only pan if clicking directly on viewport (not on a card)
-        if (e.target === viewport || e.target.classList.contains('viewport')
+        // Only pan if clicking directly on viewport or viewport-content (not on a card)
+        const viewportContent = document.querySelector('.viewport-content');
+        if (e.target === viewport || e.target === viewportContent
+            || e.target.classList.contains('viewport') || e.target.classList.contains('viewport-content')
             || (e.target.tagName === 'P' && e.target.parentElement === viewport)) {
             isPanning = true;
             panStartX = e.clientX;
             panStartY = e.clientY;
-            panScrollLeft = viewport.scrollLeft;
-            panScrollTop = viewport.scrollTop;
+            panOffsetX = currentPanX;
+            panOffsetY = currentPanY;
             viewport.style.cursor = 'grabbing';
             e.preventDefault();
         }
@@ -1316,8 +1601,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const dx = e.clientX - panStartX;
         const dy = e.clientY - panStartY;
 
-        viewport.scrollLeft = panScrollLeft - dx;
-        viewport.scrollTop = panScrollTop - dy;
+        currentPanX = panOffsetX + dx;
+        currentPanY = panOffsetY + dy;
+
+        // Update viewport-content transform to include both pan and scale
+        const viewportContent = document.querySelector('.viewport-content');
+        if (viewportContent) {
+            const originX = focalPoint.x * 100;
+            const originY = focalPoint.y * 100;
+            viewportContent.style.transform = `translate(${currentPanX}px, ${currentPanY}px) scale(${currentZoom})`;
+            viewportContent.style.transformOrigin = `${originX}% ${originY}%`;
+        }
     });
 
     viewport.addEventListener('mouseup', function(e) {
@@ -1380,6 +1674,20 @@ document.addEventListener('DOMContentLoaded', function() {
         enterCount = 0;
     });
 
+    // Delete button handler
+    editDeleteBtn.addEventListener('click', function() {
+        const editingCardId = editModal.dataset.editingCardId;
+
+        // Only allow deleting existing cards, not new ones
+        if (editingCardId && confirm('Delete this card?')) {
+            socket.emit('viewport:delete', { id: editingCardId });
+            editModal.style.display = 'none';
+            editModal.dataset.editingCardId = '';
+            pendingCard = null;
+            enterCount = 0;
+        }
+    });
+
     // Save button handler (save and close)
     editSaveBtn.addEventListener('click', function() {
         saveAndCloseEditModal();
@@ -1405,6 +1713,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (editingCardId) {
             // Editing existing card
+            debugLog.info('Emitting viewport:update', {
+                id: editingCardId,
+                header,
+                body
+            });
+
             socket.emit('viewport:update', {
                 id: editingCardId,
                 header: header,
@@ -1413,7 +1727,7 @@ document.addEventListener('DOMContentLoaded', function() {
             editModal.dataset.editingCardId = '';
         } else if (pendingCard) {
             // Creating new card
-            socket.emit('viewport:add', {
+            const cardData = {
                 id: pendingCard.id,
                 header: header || pendingCard.type,
                 body: body,
@@ -1421,7 +1735,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 left: pendingCard.left,
                 top: pendingCard.top,
                 authorInitials: currentUserInitials
-            });
+            };
+
+            debugLog.info('Emitting viewport:add', cardData);
+
+            socket.emit('viewport:add', cardData);
             pendingCard = null;
         }
 

@@ -1,0 +1,31 @@
+<svg width="96" height="96" viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg">
+  <!-- Back card - yellow, tilted right -->
+  <rect x="4" y="32" width="40" height="24"
+        fill="#FFF59D"
+        transform="rotate(12 24 44)" opacity="0.85"/>
+
+  <!-- Card 2 - light blue, tilted left -->
+  <rect x="10" y="32" width="40" height="24"
+        fill="#81D4FA"
+        transform="rotate(-10 30 44)" opacity="0.88"/>
+
+  <!-- Card 3 - pink, tilted right -->
+  <rect x="16" y="32" width="40" height="24"
+        fill="#F48FB1"
+        transform="rotate(15 36 44)" opacity="0.91"/>
+
+  <!-- Card 4 - light green, tilted left -->
+  <rect x="22" y="32" width="40" height="24"
+        fill="#AED581"
+        transform="rotate(-12 42 44)" opacity="0.94"/>
+
+  <!-- Card 5 - orange, tilted right -->
+  <rect x="28" y="32" width="40" height="24"
+        fill="#FFCC80"
+        transform="rotate(13 48 44)" opacity="0.97"/>
+
+  <!-- Front card - lavender, tilted left -->
+  <rect x="34" y="32" width="40" height="24"
+        fill="#CE93D8"
+        transform="rotate(-11 54 44)"/>
+</svg>
