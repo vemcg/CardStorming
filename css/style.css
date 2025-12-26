@@ -661,6 +661,7 @@ body {
     left: -10000px;
     pointer-events: none;
     z-index: 10000;
+    opacity: 0; /* Make ghost invisible so only the original card shows (with scaling) */
 }
 
 .drag-ghost::after {

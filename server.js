@@ -319,6 +319,32 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Handle clear viewport (delete all cards)
+    socket.on('viewport:clear', () => {
+        const project = getProject(projectId);
+        project.viewportCards = [];
+        markProjectDirty(projectId);
+        io.to(projectId).emit('viewport:clear');
+    });
+
+    // Handle clear palette
+    socket.on('palette:clear', () => {
+        const project = getProject(projectId);
+        project.paletteCards = [];
+        markProjectDirty(projectId);
+        io.to(projectId).emit('palette:clear');
+    });
+
+    // Handle delete project
+    socket.on('project:delete', (data) => {
+        const { projectId: pidToDelete } = data;
+        if (pidToDelete && projects.has(pidToDelete)) {
+            projects.delete(pidToDelete);
+            console.log(`Project ${pidToDelete} deleted`);
+            io.to(pidToDelete).emit('project:deleted');
+        }
+    });
+
     // Handle disconnect
     socket.on('disconnect', () => {
         console.log('Client disconnected:', socket.id);

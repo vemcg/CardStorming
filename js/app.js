@@ -5,8 +5,11 @@ console.log('CardStorming initialized');
 const debugLog = {
     entries: [],
     maxEntries: 500,
+    muted: false,
 
     log(level, message, data = null) {
+        if (this.muted) return;
+
         const timestamp = new Date().toISOString();
         const entry = { timestamp, level, message, data };
         this.entries.push(entry);
@@ -35,6 +38,11 @@ const debugLog = {
     clear() {
         this.entries = [];
         this.updateDisplay();
+    },
+
+    toggleMute() {
+        this.muted = !this.muted;
+        return this.muted;
     },
 
     updateDisplay() {
@@ -100,20 +108,74 @@ function snapToGrid(value) {
     return Math.round(value / GRID_SIZE) * GRID_SIZE;
 }
 
-function setZoom(zoomLevel) {
+// Convert screen coordinates to workspace accounting for pan and zoom
+// This calculates the TRUE workspace position based on visual location
+// Used when dragging/dropping cards to ensure accurate positioning
+function screenToWorkspaceNoPan(screenX, screenY) {
+    const viewport = document.querySelector('.viewport');
     const viewportContent = document.querySelector('.viewport-content');
-    if (!viewportContent) return;
+    const rect = viewport.getBoundingClientRect();
+    const viewportStyle = window.getComputedStyle(viewport);
+    const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+    const paddingTop = parseFloat(viewportStyle.paddingTop);
+
+    // Get current pan offset from viewport-content transform
+    let panX = 0, panY = 0;
+    if (viewportContent) {
+        const currentTransform = viewportContent.style.transform;
+        if (currentTransform && currentTransform.includes('translate')) {
+            const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+            if (match) {
+                panX = parseFloat(match[1]);
+                panY = parseFloat(match[2]);
+            }
+        }
+    }
+
+    // Viewport center (accounting for padding)
+    const viewportWidth = rect.width - paddingLeft * 2;
+    const viewportHeight = rect.height - paddingTop * 2;
+    const centerX = viewportWidth / 2;
+    const centerY = viewportHeight / 2;
+
+    // Position relative to viewport content area (after padding)
+    const contentX = screenX - rect.left - paddingLeft;
+    const contentY = screenY - rect.top - paddingTop;
+
+    // Position relative to center
+    const relativeX = contentX - centerX;
+    const relativeY = contentY - centerY;
+
+    // Account for pan and zoom to get workspace coordinates
+    // workspace = (screen_relative_to_center - pan) / zoom
+    const workspaceX = (relativeX - panX) / currentZoom;
+    const workspaceY = (relativeY - panY) / currentZoom;
+
+    debugLog.info('screenToWorkspaceNoPan', {
+        screenX,
+        screenY,
+        viewportRect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+        viewportCenter: { x: centerX, y: centerY },
+        padding: { left: paddingLeft, top: paddingTop },
+        pan: { x: panX, y: panY },
+        currentZoom,
+        contentPos: { x: contentX, y: contentY },
+        relativeToCenter: { x: relativeX, y: relativeY },
+        result: { x: workspaceX, y: workspaceY }
+    });
+
+    return { x: workspaceX, y: workspaceY };
+}
+
+function setZoom(zoomLevel) {
+    const viewport = document.querySelector('.viewport');
+    const viewportContent = document.querySelector('.viewport-content');
+    if (!viewport || !viewportContent) return;
 
     const oldZoom = currentZoom;
     currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel));
 
-    // Calculate transform origin based on focal point (percentage coordinates)
-    const originX = focalPoint.x * 100;
-    const originY = focalPoint.y * 100;
-
-    // Get current pan offset from the panning system
-    // We need to access these variables which are defined in setupSocketListeners scope
-    // For now, parse it from the current transform if it exists
+    // Get current pan offset
     let panX = 0, panY = 0;
     const currentTransform = viewportContent.style.transform;
     if (currentTransform && currentTransform.includes('translate')) {
@@ -124,14 +186,41 @@ function setZoom(zoomLevel) {
         }
     }
 
+    // Adjust pan to maintain focal point during zoom
+    if (focalPoint && currentZoom !== oldZoom) {
+        const rect = viewport.getBoundingClientRect();
+        const viewportStyle = window.getComputedStyle(viewport);
+        const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+        const paddingTop = parseFloat(viewportStyle.paddingTop);
+
+        // Convert focal point (0-1 range) to viewport pixels
+        const focalScreenX = focalPoint.x * rect.width;
+        const focalScreenY = focalPoint.y * rect.height;
+
+        // Viewport center (accounting for padding)
+        const viewportWidth = rect.width - paddingLeft * 2;
+        const viewportHeight = rect.height - paddingTop * 2;
+        const centerX = viewportWidth / 2;
+        const centerY = viewportHeight / 2;
+
+        // Find workspace point (center-origin) at focal screen position with OLD zoom
+        // workspace = (screen - padding - center - panX) / oldZoom
+        const workspaceX = (focalScreenX - paddingLeft - centerX - panX) / oldZoom;
+        const workspaceY = (focalScreenY - paddingTop - centerY - panY) / oldZoom;
+
+        // Calculate what pan is needed to keep this workspace point at same screen position with NEW zoom
+        // screen = workspace * newZoom + center + newPanX + padding
+        // newPanX = screen - padding - center - workspace * newZoom
+        panX = focalScreenX - paddingLeft - centerX - workspaceX * currentZoom;
+        panY = focalScreenY - paddingTop - centerY - workspaceY * currentZoom;
+    }
+
     viewportContent.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
-    viewportContent.style.transformOrigin = `${originX}% ${originY}%`;
 
     debugLog.info('setZoom', {
         oldZoom,
         newZoom: currentZoom,
         focalPoint: { ...focalPoint },
-        originPercent: { x: originX, y: originY },
         pan: { x: panX, y: panY }
     });
 }
@@ -461,6 +550,36 @@ function setupSocketListeners() {
     const viewport = document.querySelector('.viewport');
     const viewportContent = document.querySelector('.viewport-content');
 
+    // Convert workspace coordinates (center-origin) to CSS positioning (top-left origin)
+    // This is used when creating/positioning cards with CSS left/top
+    function workspaceToCSS(workspaceX, workspaceY) {
+        const viewport = document.querySelector('.viewport');
+        const rect = viewport.getBoundingClientRect();
+        const viewportStyle = window.getComputedStyle(viewport);
+        const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+        const paddingTop = parseFloat(viewportStyle.paddingTop);
+
+        // Viewport center (accounting for padding)
+        const viewportWidth = rect.width - paddingLeft * 2;
+        const viewportHeight = rect.height - paddingTop * 2;
+        const centerX = viewportWidth / 2;
+        const centerY = viewportHeight / 2;
+
+        // CSS position = workspace position + center offset
+        const cssX = workspaceX + centerX;
+        const cssY = workspaceY + centerY;
+
+        debugLog.info('workspaceToCSS', {
+            workspace: { x: workspaceX, y: workspaceY },
+            viewportSize: { width: rect.width, height: rect.height },
+            padding: { left: paddingLeft, top: paddingTop },
+            center: { x: centerX, y: centerY },
+            css: { x: cssX, y: cssY }
+        });
+
+        return { x: cssX, y: cssY };
+    }
+
     // Function to update card content
     function updateCardContent(card, header, body) {
         const headerDiv = document.createElement('div');
@@ -584,8 +703,15 @@ function setupSocketListeners() {
         card.dataset.id = id;
         card.style.backgroundColor = color;
         card.style.color = getTextColorForBackground(color);
-        card.style.left = left;
-        card.style.top = top;
+
+        // left/top from server are in workspace coordinates (center-origin)
+        // Convert to CSS coordinates (top-left origin) for positioning
+        const workspaceX = parseFloat(left);
+        const workspaceY = parseFloat(top);
+        const cssPos = workspaceToCSS(workspaceX, workspaceY);
+
+        card.style.left = cssPos.x + 'px';
+        card.style.top = cssPos.y + 'px';
         card.style.zIndex = zIndex || 1;
 
         updateCardContent(card, header, body);
@@ -675,8 +801,14 @@ function setupSocketListeners() {
     socket.on('viewport:move', (data) => {
         const card = document.querySelector(`[data-id="${data.id}"]`);
         if (card) {
-            card.style.left = data.left;
-            card.style.top = data.top;
+            // data.left and data.top are workspace coordinates (center-origin) with 'px' suffix
+            // Convert to CSS coordinates (top-left origin)
+            const workspaceX = parseFloat(data.left);
+            const workspaceY = parseFloat(data.top);
+            const cssPos = workspaceToCSS(workspaceX, workspaceY);
+
+            card.style.left = cssPos.x + 'px';
+            card.style.top = cssPos.y + 'px';
             card.style.zIndex = data.zIndex;
         }
     });
@@ -687,6 +819,24 @@ function setupSocketListeners() {
             updateCardContent(card, data.header, data.body);
             card.style.zIndex = data.zIndex;
         }
+    });
+
+    // Handle clear viewport
+    socket.on('viewport:clear', () => {
+        viewportContent.querySelectorAll('.viewport-card').forEach(card => card.remove());
+        debugLog.info('All viewport cards deleted');
+    });
+
+    // Handle clear palette
+    socket.on('palette:clear', () => {
+        cardList.innerHTML = '';
+        debugLog.info('Palette cleared');
+    });
+
+    // Handle project deleted
+    socket.on('project:deleted', () => {
+        alert('This project has been deleted.');
+        closeProject();
     });
 
     // Handle full state sync (e.g., after z-index normalization)
@@ -1053,6 +1203,41 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Delete All Cards menu item
+    const deleteCardsMenuItem = document.getElementById('menu-delete-cards');
+    if (deleteCardsMenuItem) {
+        deleteCardsMenuItem.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (confirm('Delete all cards from the viewport? This cannot be undone.')) {
+                socket.emit('viewport:clear');
+            }
+        });
+    }
+
+    // Delete Palette menu item
+    const deletePaletteMenuItem = document.getElementById('menu-delete-palette');
+    if (deletePaletteMenuItem) {
+        deletePaletteMenuItem.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (confirm('Delete all palette card types? This cannot be undone.')) {
+                socket.emit('palette:clear');
+            }
+        });
+    }
+
+    // Delete Project menu item
+    const deleteProjectMenuItem = document.getElementById('menu-delete-project');
+    if (deleteProjectMenuItem) {
+        deleteProjectMenuItem.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (confirm('Delete this entire project? This cannot be undone.')) {
+                socket.emit('project:delete', { projectId: currentProjectId });
+                // Close the project after deletion
+                setTimeout(() => closeProject(), 100);
+            }
+        });
+    }
+
     // Show Log menu item
     const showLogMenuItem = document.getElementById('menu-show-log');
     const logModal = document.getElementById('log-modal');
@@ -1062,8 +1247,40 @@ document.addEventListener('DOMContentLoaded', function() {
     if (showLogMenuItem) {
         showLogMenuItem.addEventListener('click', function(e) {
             e.preventDefault();
+            if (debugLog.muted) {
+                // Don't show log if muted
+                return;
+            }
             logModal.style.display = 'block';
             debugLog.updateDisplay();
+        });
+    }
+
+    const logMuteBtn = document.getElementById('log-mute');
+    const logCopyBtn = document.getElementById('log-copy');
+
+    if (logMuteBtn) {
+        logMuteBtn.addEventListener('click', function() {
+            debugLog.muted = true;
+            logModal.style.display = 'none';
+        });
+    }
+
+    if (logCopyBtn) {
+        logCopyBtn.addEventListener('click', function() {
+            const logText = debugLog.entries.map(entry => {
+                const dataStr = entry.data ? '\n' + JSON.stringify(entry.data, null, 2) : '';
+                return `${entry.timestamp} [${entry.level.toUpperCase()}] ${entry.message}${dataStr}`;
+            }).join('\n\n');
+
+            navigator.clipboard.writeText(logText).then(() => {
+                logCopyBtn.textContent = 'Copied!';
+                setTimeout(() => {
+                    logCopyBtn.textContent = 'Copy All';
+                }, 1500);
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+            });
         });
     }
 
@@ -1389,10 +1606,122 @@ document.addEventListener('DOMContentLoaded', function() {
     let offsetX = 0;
     let offsetY = 0;
 
+    // Auto-zoom based on drag duration
+    const ZOOM_OUT_SPEED = 0.002; // zoom change per frame (very slow)
+    const ZOOM_DELAY_MS = 1500; // delay before auto-zoom starts (ms) - 1.5 seconds
+    const SNAP_TO_MOUSE_DELAY_MS = 100; // snap card to mouse center after this delay
+    const EDGE_DISTANCE_RATIO = 0.15; // Pan when within 15% of viewport from edge
+    const PAN_SPEED = 3; // pixels per frame when near edge
+    let dragStartTime = null;
+    let hasSnappedToMouse = false;
+
+    function handleDragZoomAndPan(mouseEvent) {
+        const viewport = document.querySelector('.viewport');
+        const viewportContent = document.querySelector('.viewport-content');
+        if (!viewport || !viewportContent) return;
+
+        const rect = viewport.getBoundingClientRect();
+
+        // Get current pan offset
+        let panX = 0, panY = 0;
+        const currentTransform = viewportContent.style.transform;
+        if (currentTransform && currentTransform.includes('translate')) {
+            const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+            if (match) {
+                panX = parseFloat(match[1]);
+                panY = parseFloat(match[2]);
+            }
+        }
+
+        // Check if enough time has passed since drag started for zoom
+        const now = Date.now();
+        const shouldZoom = dragStartTime && (now - dragStartTime >= ZOOM_DELAY_MS);
+
+        // Zoom out while dragging (time-based, not edge-based)
+        // Zoom all the way to MIN_ZOOM (0.1)
+        if (shouldZoom && currentZoom > MIN_ZOOM) {
+            currentZoom = Math.max(MIN_ZOOM, currentZoom - ZOOM_OUT_SPEED);
+        }
+
+        // Calculate edge threshold based on viewport size (15% from edges)
+        const edgeThresholdX = rect.width * EDGE_DISTANCE_RATIO;
+        const edgeThresholdY = rect.height * EDGE_DISTANCE_RATIO;
+
+        // Check if mouse is near edge for panning
+        const mouseX = mouseEvent.clientX - rect.left;
+        const mouseY = mouseEvent.clientY - rect.top;
+        const distanceFromLeft = mouseX;
+        const distanceFromRight = rect.width - mouseX;
+        const distanceFromTop = mouseY;
+        const distanceFromBottom = rect.height - mouseY;
+
+        // Pan when near edges (move viewport to reveal more cards)
+        if (distanceFromLeft < edgeThresholdX) {
+            panX += PAN_SPEED;
+        }
+        if (distanceFromRight < edgeThresholdX) {
+            panX -= PAN_SPEED;
+        }
+        if (distanceFromTop < edgeThresholdY) {
+            panY += PAN_SPEED;
+        }
+        if (distanceFromBottom < edgeThresholdY) {
+            panY -= PAN_SPEED;
+        }
+
+        // Update transform
+        viewportContent.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+    }
+
     viewport.addEventListener('dragover', function(e) {
         e.preventDefault();
         e.dataTransfer.dropEffect = draggedViewportCard ? 'move' : 'copy';
         viewport.classList.add('drag-over');
+
+        // Move the card being dragged to follow the cursor
+        if (draggedViewportCard) {
+            // Update focal point to follow the mouse/card during drag FIRST
+            setFocalPointFromEvent(e);
+
+            const viewport = document.querySelector('.viewport');
+            const rect = viewport.getBoundingClientRect();
+            const viewportStyle = window.getComputedStyle(viewport);
+            const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+            const paddingTop = parseFloat(viewportStyle.paddingTop);
+
+            // Calculate viewport center
+            const viewportWidth = rect.width - paddingLeft * 2;
+            const viewportHeight = rect.height - paddingTop * 2;
+            const centerX = viewportWidth / 2;
+            const centerY = viewportHeight / 2;
+
+            // After a brief delay, snap card to center under mouse (eliminate initial offset)
+            const now = Date.now();
+            if (!hasSnappedToMouse && dragStartTime && (now - dragStartTime >= SNAP_TO_MOUSE_DELAY_MS)) {
+                // Reset offset to center the card under mouse
+                offsetX = 75; // Half of card width (150px / 2)
+                offsetY = 50; // Half of card height (100px / 2)
+                hasSnappedToMouse = true;
+            }
+
+            // Get mouse position in workspace
+            const mouseWorkspace = screenToWorkspaceNoPan(e.clientX, e.clientY);
+
+            // Calculate card position by subtracting the workspace offset
+            const cardWorkspaceX = mouseWorkspace.x - offsetX;
+            const cardWorkspaceY = mouseWorkspace.y - offsetY;
+
+            // Convert workspace to CSS coordinates
+            const cssX = cardWorkspaceX + centerX;
+            const cssY = cardWorkspaceY + centerY;
+
+            // Update card position
+            draggedViewportCard.style.left = cssX + 'px';
+            draggedViewportCard.style.top = cssY + 'px';
+
+            // Handle continuous zoom with focal point at mouse
+            handleDragZoomAndPan(e);
+        }
     });
 
     viewport.addEventListener('dragleave', function(e) {
@@ -1410,8 +1739,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const editCardHeader = document.getElementById('edit-card-header');
     const editCardBody = document.getElementById('edit-card-body');
     let pendingCard = null;
-
     // Convert screen coordinates to workspace coordinates
+    // Workspace origin is at the CENTER of the viewport (at initial zoom/pan)
     function screenToWorkspace(screenX, screenY) {
         const viewport = document.querySelector('.viewport');
         const viewportContent = document.querySelector('.viewport-content');
@@ -1433,15 +1762,25 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
-        // Get position relative to viewport, accounting for padding, pan, and zoom
-        // Formula: (screen - viewportOrigin - padding - pan) / zoom
-        const contentX = (screenX - rect.left - paddingLeft - panX) / currentZoom;
-        const contentY = (screenY - rect.top - paddingTop - panY) / currentZoom;
+        // Viewport center (accounting for padding)
+        const viewportWidth = rect.width - paddingLeft * 2;
+        const viewportHeight = rect.height - paddingTop * 2;
+        const centerX = viewportWidth / 2;
+        const centerY = viewportHeight / 2;
+
+        // Get position relative to viewport center, accounting for padding, pan, and zoom
+        // Transform: translate(panX, panY) scale(zoom)
+        // Screen position relative to viewport top-left = screen - viewport.left - padding
+        // Position relative to center = screen position - center
+        // Workspace = (screen - viewport - padding - center - panX) / zoom
+        const contentX = (screenX - rect.left - paddingLeft - centerX - panX) / currentZoom;
+        const contentY = (screenY - rect.top - paddingTop - centerY - panY) / currentZoom;
 
         debugLog.info('screenToWorkspace', {
             screenX,
             screenY,
-            viewportRect: { left: rect.left, top: rect.top },
+            viewportRect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+            viewportCenter: { x: centerX, y: centerY },
             padding: { left: paddingLeft, top: paddingTop },
             pan: { x: panX, y: panY },
             currentZoom,
@@ -1456,36 +1795,64 @@ document.addEventListener('DOMContentLoaded', function() {
         e.preventDefault();
         viewport.classList.remove('drag-over');
 
+        // Get all transform info for debugging
+        const viewportContent = document.querySelector('.viewport-content');
+        const rect = viewport.getBoundingClientRect();
+        const viewportStyle = window.getComputedStyle(viewport);
+        const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+        const paddingTop = parseFloat(viewportStyle.paddingTop);
+
+        let currentPanX = 0, currentPanY = 0;
+        if (viewportContent) {
+            const currentTransform = viewportContent.style.transform;
+            if (currentTransform && currentTransform.includes('translate')) {
+                const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+                if (match) {
+                    currentPanX = parseFloat(match[1]);
+                    currentPanY = parseFloat(match[2]);
+                }
+            }
+        }
+
         // Update focal point to drop location
         setFocalPointFromEvent(e);
 
-        debugLog.info('Drop event', {
-            clientX: e.clientX,
-            clientY: e.clientY,
-            isDraggingViewportCard: !!draggedViewportCard
+        debugLog.info('=== DROP EVENT ===', {
+            mouseScreen: { x: e.clientX, y: e.clientY },
+            viewportRect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+            padding: { left: paddingLeft, top: paddingTop },
+            currentZoom,
+            currentPan: { x: currentPanX, y: currentPanY },
+            isDraggingViewportCard: !!draggedViewportCard,
+            dragOffset: { x: offsetX, y: offsetY }
         });
 
         // If dropping a viewport card (moving it)
         if (draggedViewportCard) {
-            // Subtract the screen-space offset from the drop position before converting
-            // This gives us the position where the top-left corner of the card should be
-            const adjustedScreenX = e.clientX - offsetX;
-            const adjustedScreenY = e.clientY - offsetY;
+            // Get mouse position in workspace
+            const mouseWorkspace = screenToWorkspaceNoPan(e.clientX, e.clientY);
 
-            const finalPos = screenToWorkspace(adjustedScreenX, adjustedScreenY);
+            // Calculate card workspace position by subtracting the workspace offset
+            const cardWorkspaceX = mouseWorkspace.x - offsetX;
+            const cardWorkspaceY = mouseWorkspace.y - offsetY;
 
             // Snap to grid
-            const snappedX = snapToGrid(finalPos.x);
-            const snappedY = snapToGrid(finalPos.y);
+            const snappedX = snapToGrid(cardWorkspaceX);
+            const snappedY = snapToGrid(cardWorkspaceY);
 
-            debugLog.info('Moving existing card', {
-                cardId: draggedViewportCard.dataset.id,
-                screenPos: { x: e.clientX, y: e.clientY },
+            debugLog.info('Final drop position', {
+                mouseWorkspace,
                 offset: { x: offsetX, y: offsetY },
-                adjustedScreen: { x: adjustedScreenX, y: adjustedScreenY },
-                finalPos,
-                snapped: { x: snappedX, y: snappedY }
+                cardWorkspace: { x: cardWorkspaceX, y: cardWorkspaceY },
+                snappedWorkspace: { x: snappedX, y: snappedY }
             });
+
+            // Show the log modal if not muted
+            const logModal = document.getElementById('log-modal');
+            if (logModal && !debugLog.muted) {
+                logModal.style.display = 'block';
+                debugLog.updateDisplay();
+            }
 
             socket.emit('viewport:move', {
                 id: draggedViewportCard.dataset.id,
@@ -1500,7 +1867,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!dataStr) return;
 
         const data = JSON.parse(dataStr);
-        const dropPos = screenToWorkspace(e.clientX, e.clientY);
+        // Use screenToWorkspaceNoPan to get true workspace position
+        const dropPos = screenToWorkspaceNoPan(e.clientX, e.clientY);
 
         // Center the card under cursor (150px wide, 100px tall)
         let x = dropPos.x - 75;
@@ -1533,13 +1901,49 @@ document.addEventListener('DOMContentLoaded', function() {
         editCardHeader.focus();
     });
 
+    // Track drag start position for focal point
+    let dragStartPosition = null;
+
     // Viewport card drag handlers
     viewport.addEventListener('dragstart', function(e) {
         if (e.target.classList.contains('viewport-card')) {
             draggedViewportCard = e.target;
-            // Lock cursor to top-left corner for predictable grid snapping
-            offsetX = 0;
-            offsetY = 0;
+
+            // Start the drag timer for auto-zoom delay
+            dragStartTime = Date.now();
+
+            // Calculate where on the card the user grabbed it (in workspace coordinates)
+            // Get the card's current workspace position
+            const viewport = document.querySelector('.viewport');
+            const rect = viewport.getBoundingClientRect();
+            const viewportStyle = window.getComputedStyle(viewport);
+            const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+            const paddingTop = parseFloat(viewportStyle.paddingTop);
+            const viewportWidth = rect.width - paddingLeft * 2;
+            const viewportHeight = rect.height - paddingTop * 2;
+            const centerX = viewportWidth / 2;
+            const centerY = viewportHeight / 2;
+
+            // Get card's CSS position
+            const cardLeft = parseFloat(e.target.style.left);
+            const cardTop = parseFloat(e.target.style.top);
+
+            // Convert card position from CSS to workspace
+            const cardWorkspaceX = cardLeft - centerX;
+            const cardWorkspaceY = cardTop - centerY;
+
+            // Get mouse position in workspace
+            const mouseWorkspace = screenToWorkspaceNoPan(e.clientX, e.clientY);
+
+            // Offset in workspace coordinates
+            offsetX = mouseWorkspace.x - cardWorkspaceX;
+            offsetY = mouseWorkspace.y - cardWorkspaceY;
+
+            // Store the starting position of the card for focal point during auto-zoom
+            dragStartPosition = {
+                x: e.clientX,
+                y: e.clientY
+            };
 
             // Create custom drag ghost with gradient
             const ghost = e.target.cloneNode(true);
@@ -1548,8 +1952,8 @@ document.addEventListener('DOMContentLoaded', function() {
             ghost.style.height = e.target.offsetHeight + 'px';
             document.body.appendChild(ghost);
 
-            // Set the custom drag image
-            e.dataTransfer.setDragImage(ghost, 0, 0);
+            // Set the custom drag image at the grab point
+            e.dataTransfer.setDragImage(ghost, offsetX, offsetY);
 
             // Clean up the ghost after a brief moment
             setTimeout(() => {
@@ -1560,13 +1964,82 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Add dragging class to original card
             e.target.classList.add('dragging');
+
+            // Set focal point to the card's starting position
+            setFocalPointFromEvent(e, e.target);
         }
     }, false);
 
     viewport.addEventListener('dragend', function(e) {
         if (e.target.classList.contains('viewport-card')) {
             e.target.classList.remove('dragging');
+
+            // Reset snap flag for next drag
+            hasSnappedToMouse = false;
+
+            // If we were zoomed out during drag, zoom back in centered on the viewport
+            if (currentZoom < 1.0 && draggedViewportCard) {
+                const oldZoom = currentZoom;
+
+                // Get the card's workspace position (center-origin)
+                const cardLeft = parseFloat(draggedViewportCard.style.left);
+                const cardTop = parseFloat(draggedViewportCard.style.top);
+
+                // Convert from CSS (top-left origin) back to workspace coordinates
+                const viewport = document.querySelector('.viewport');
+                const rect = viewport.getBoundingClientRect();
+                const viewportStyle = window.getComputedStyle(viewport);
+                const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+                const paddingTop = parseFloat(viewportStyle.paddingTop);
+                const viewportWidth = rect.width - paddingLeft * 2;
+                const viewportHeight = rect.height - paddingTop * 2;
+                const centerX = viewportWidth / 2;
+                const centerY = viewportHeight / 2;
+
+                // CSS to workspace: workspace = css - center
+                const workspaceX = cardLeft - centerX;
+                const workspaceY = cardTop - centerY;
+
+                // Card dimensions
+                const cardWidth = 150;
+                const cardHeight = draggedViewportCard.offsetHeight;
+
+                debugLog.info('Resetting zoom after drop', {
+                    cardCSS: { left: cardLeft, top: cardTop },
+                    cardWorkspace: { x: workspaceX, y: workspaceY },
+                    cardSize: { width: cardWidth, height: cardHeight },
+                    oldZoom: currentZoom
+                });
+
+                // Reset zoom to 1.0
+                currentZoom = 1.0;
+
+                // Calculate pan needed to center the card at viewport center
+                // At zoom=1, to show a workspace point at screen center, we need:
+                // pan = -(workspace position of card center)
+                const cardCenterWorkspaceX = workspaceX + cardWidth / 2;
+                const cardCenterWorkspaceY = workspaceY + cardHeight / 2;
+
+                const newPanX = -cardCenterWorkspaceX;
+                const newPanY = -cardCenterWorkspaceY;
+
+                // Set focal point to center
+                focalPoint.x = 0.5;
+                focalPoint.y = 0.5;
+
+                // Update transform
+                const viewportContent = document.querySelector('.viewport-content');
+                viewportContent.style.transform = `translate(${newPanX}px, ${newPanY}px) scale(${currentZoom})`;
+
+                debugLog.info('Zoom reset complete', {
+                    newZoom: currentZoom,
+                    newPan: { x: newPanX, y: newPanY },
+                    focalPoint: { ...focalPoint }
+                });
+            }
+
             draggedViewportCard = null;
+            dragStartTime = null;
         }
     }, false);
 
@@ -1738,6 +2211,13 @@ document.addEventListener('DOMContentLoaded', function() {
             };
 
             debugLog.info('Emitting viewport:add', cardData);
+
+            // Show the log modal if not muted
+            const logModal = document.getElementById('log-modal');
+            if (logModal && !debugLog.muted) {
+                logModal.style.display = 'block';
+                debugLog.updateDisplay();
+            }
 
             socket.emit('viewport:add', cardData);
             pendingCard = null;
