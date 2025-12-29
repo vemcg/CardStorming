@@ -91,6 +91,7 @@ function getProject(projectId) {
                 projectName: null,
                 paletteCards: [],
                 viewportCards: [],
+                wormholes: [], // Array of wormhole objects
                 maxZIndex: 1,
                 users: new Map() // initials -> {name, socketId}
             });
@@ -140,7 +141,8 @@ function deserializeProject(data) {
     }
     return {
         ...data,
-        users
+        users,
+        wormholes: data.wormholes || [] // Ensure wormholes array exists
     };
 }
 
@@ -179,6 +181,10 @@ io.on('connection', (socket) => {
 
     // Send current state to newly connected client
     const project = getProject(projectId);
+    console.log(`Sending state to client. Wormholes in project: ${project.wormholes ? project.wormholes.length : 0}`);
+    if (project.wormholes && project.wormholes.length > 0) {
+        console.log('Wormholes:', project.wormholes);
+    }
     socket.emit('state:init', project);
 
     // Handle user validation (check if initials are available)
@@ -319,12 +325,36 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Handle clear viewport (delete all cards)
+    // Handle clear viewport (delete all cards and wormholes)
     socket.on('viewport:clear', () => {
         const project = getProject(projectId);
         project.viewportCards = [];
+        project.wormholes = [];
         markProjectDirty(projectId);
         io.to(projectId).emit('viewport:clear');
+    });
+
+    // Handle wormhole creation
+    socket.on('wormhole:add', (wormholeData) => {
+        const project = getProject(projectId);
+        console.log(`Wormhole added to project ${projectId}:`, wormholeData);
+        console.log(`Total wormholes in project: ${project.wormholes.length + 1}`);
+        project.wormholes.push(wormholeData);
+        markProjectDirty(projectId);
+        socket.broadcast.to(projectId).emit('wormhole:add', wormholeData);
+    });
+
+    // Handle wormhole movement
+    socket.on('wormhole:move', (data) => {
+        const project = getProject(projectId);
+        const { id, x, y } = data;
+        const wormhole = project.wormholes.find(w => w.id === id);
+        if (wormhole) {
+            wormhole.x = x;
+            wormhole.y = y;
+            markProjectDirty(projectId);
+            socket.broadcast.to(projectId).emit('wormhole:move', { id, x, y });
+        }
     });
 
     // Handle clear palette

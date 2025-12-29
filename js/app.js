@@ -742,9 +742,10 @@ function setupSocketListeners() {
 
     // WebSocket event listeners
     socket.on('state:init', (serverState) => {
-        // Clear existing cards
+        // Clear existing cards and wormholes
         cardList.innerHTML = '';
         viewportContent.querySelectorAll('.viewport-card').forEach(card => card.remove());
+        viewportContent.querySelectorAll('.wormhole-portal').forEach(wormhole => wormhole.remove());
 
         // Set project name
         if (serverState.projectName) {
@@ -777,6 +778,13 @@ function setupSocketListeners() {
         serverState.viewportCards.forEach(cardData => {
             createViewportCard(cardData.id, cardData.header, cardData.body, cardData.color, cardData.left, cardData.top, cardData.zIndex, cardData.authorInitials);
         });
+
+        // Load wormholes
+        if (serverState.wormholes) {
+            serverState.wormholes.forEach(wormholeData => {
+                createWormholeElement(wormholeData.x, wormholeData.y, wormholeData.id, wormholeData.partnerId);
+            });
+        }
     });
 
     socket.on('project:renamed', (data) => {
@@ -821,10 +829,38 @@ function setupSocketListeners() {
         }
     });
 
+    // Handle wormhole added
+    socket.on('wormhole:add', (wormholeData) => {
+        createWormholeElement(wormholeData.x, wormholeData.y, wormholeData.id, wormholeData.partnerId);
+    });
+
+    // Handle wormhole moved
+    socket.on('wormhole:move', (data) => {
+        const wormhole = document.querySelector(`.wormhole-portal[data-id="${data.id}"]`);
+        if (wormhole) {
+            const viewport = document.querySelector('.viewport');
+            const rect = viewport.getBoundingClientRect();
+            const viewportStyle = window.getComputedStyle(viewport);
+            const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+            const paddingTop = parseFloat(viewportStyle.paddingTop);
+            const viewportWidth = rect.width - paddingLeft * 2;
+            const viewportHeight = rect.height - paddingTop * 2;
+            const centerX = viewportWidth / 2;
+            const centerY = viewportHeight / 2;
+
+            const cssX = data.x + centerX;
+            const cssY = data.y + centerY;
+
+            wormhole.style.left = cssX + 'px';
+            wormhole.style.top = cssY + 'px';
+        }
+    });
+
     // Handle clear viewport
     socket.on('viewport:clear', () => {
         viewportContent.querySelectorAll('.viewport-card').forEach(card => card.remove());
-        debugLog.info('All viewport cards deleted');
+        viewportContent.querySelectorAll('.wormhole-portal').forEach(wormhole => wormhole.remove());
+        debugLog.info('All viewport cards and wormholes deleted');
     });
 
     // Handle clear palette
@@ -1492,6 +1528,628 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Zoom-search and Wormhole button mouse-based drag behavior (not using HTML5 drag API)
+    const zoomSearchBtn = document.getElementById('zoom-search-btn');
+    const wormholeBtn = document.getElementById('wormhole-btn');
+    console.log('WORMHOLE BUTTON CHECK:', wormholeBtn);
+    debugLog.info('Wormhole button found?', { exists: !!wormholeBtn, element: wormholeBtn });
+    let isSearchDragging = false;
+    let searchDragStartTime = null;
+    let nearestCard = null;
+    let searchAnimationFrame = null;
+    let activeSearchBtn = null; // Track which button was clicked
+    let searchGhost = null; // Visual indicator that follows cursor
+    const SEARCH_ZOOM_SPEED = 0.002; // Same as card drag zoom speed
+    const SEARCH_ZOOM_DELAY_MS = 1500; // Same as card drag zoom delay (1.5 seconds)
+    const SEARCH_PAN_SPEED = 3; // Same as card drag pan speed
+    const SEARCH_EDGE_RATIO = 0.15; // Same as card drag edge distance (15%)
+
+    // Wormhole portal state
+    let wormholeState = null; // 'placing-first' or 'placing-second'
+    let firstWormhole = null; // Reference to first wormhole element
+    let secondWormhole = null; // Reference to second wormhole element (the one being dragged)
+
+    // Function to create a wormhole element on the viewport
+    function createWormholeElement(workspaceX, workspaceY, wormholeId, partnerId) {
+        const viewportContent = document.querySelector('.viewport-content');
+        const viewport = document.querySelector('.viewport');
+        if (!viewportContent || !viewport) return null;
+
+        const rect = viewport.getBoundingClientRect();
+        const viewportStyle = window.getComputedStyle(viewport);
+        const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+        const paddingTop = parseFloat(viewportStyle.paddingTop);
+        const viewportWidth = rect.width - paddingLeft * 2;
+        const viewportHeight = rect.height - paddingTop * 2;
+        const centerX = viewportWidth / 2;
+        const centerY = viewportHeight / 2;
+
+        // Convert workspace to CSS coordinates
+        const cssX = workspaceX + centerX;
+        const cssY = workspaceY + centerY;
+
+        // Create wormhole element - circular portal
+        const wormhole = document.createElement('div');
+        wormhole.className = 'wormhole-portal';
+        wormhole.dataset.id = wormholeId;
+        wormhole.dataset.partnerId = partnerId;
+        wormhole.style.position = 'absolute';
+        wormhole.style.left = cssX + 'px';
+        wormhole.style.top = cssY + 'px';
+        wormhole.style.width = '120px';
+        wormhole.style.height = '120px';
+        wormhole.style.backgroundColor = 'rgba(255, 255, 255, 0.95)';
+        wormhole.style.border = '3px solid #666';
+        wormhole.style.borderRadius = '50%'; // Make it circular
+        wormhole.style.display = 'flex';
+        wormhole.style.alignItems = 'center';
+        wormhole.style.justifyContent = 'center';
+        wormhole.style.cursor = 'pointer';
+        wormhole.style.zIndex = '100';
+        wormhole.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.3)';
+
+        // Get the wormhole button to copy its SVG
+        const wormholeBtnElement = document.getElementById('wormhole-btn');
+        if (wormholeBtnElement) {
+            wormhole.innerHTML = wormholeBtnElement.innerHTML;
+            const svg = wormhole.querySelector('svg');
+            if (svg) {
+                svg.style.width = '96px';
+                svg.style.height = '96px';
+            }
+        }
+
+        // Make wormhole draggable
+        let isDraggingWormhole = false;
+        let wormholeOffsetX = 0;
+        let wormholeOffsetY = 0;
+        let dragStartTime = 0;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let hasMoved = false;
+
+        wormhole.addEventListener('mousedown', function(e) {
+            e.stopPropagation();
+            debugLog.info('Wormhole mousedown', { wormholeId, partnerId });
+            isDraggingWormhole = true;
+            dragStartTime = Date.now();
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            hasMoved = false;
+
+            // Calculate offset from wormhole center to mouse
+            const wormholeRect = wormhole.getBoundingClientRect();
+            const wormholeCenterX = wormholeRect.left + wormholeRect.width / 2;
+            const wormholeCenterY = wormholeRect.top + wormholeRect.height / 2;
+            wormholeOffsetX = e.clientX - wormholeCenterX;
+            wormholeOffsetY = e.clientY - wormholeCenterY;
+
+            wormhole.style.opacity = '0.7';
+            wormhole.style.zIndex = '1000';
+        });
+
+        const moveWormhole = function(e) {
+            if (!isDraggingWormhole) return;
+
+            // Check if mouse has moved more than 5 pixels from start
+            const dx = e.clientX - dragStartX;
+            const dy = e.clientY - dragStartY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance > 5) {
+                hasMoved = true;
+            }
+
+            if (!hasMoved) return; // Don't move until threshold is crossed
+
+            const mouseWorkspace = screenToWorkspaceNoPan(e.clientX - wormholeOffsetX, e.clientY - wormholeOffsetY);
+            const viewportStyle = window.getComputedStyle(viewport);
+            const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+            const paddingTop = parseFloat(viewportStyle.paddingTop);
+            const viewportRect = viewport.getBoundingClientRect();
+            const viewportWidth = viewportRect.width - paddingLeft * 2;
+            const viewportHeight = viewportRect.height - paddingTop * 2;
+            const centerX = viewportWidth / 2;
+            const centerY = viewportHeight / 2;
+
+            const cssX = mouseWorkspace.x + centerX;
+            const cssY = mouseWorkspace.y + centerY;
+
+            wormhole.style.left = cssX + 'px';
+            wormhole.style.top = cssY + 'px';
+        };
+
+        const stopWormholeDrag = function(e) {
+            if (!isDraggingWormhole) return;
+            isDraggingWormhole = false;
+            wormhole.style.opacity = '1';
+            wormhole.style.zIndex = '100';
+
+            const dragDuration = Date.now() - dragStartTime;
+
+            debugLog.info('Wormhole mouseup', { hasMoved, dragDuration, wormholeId, partnerId });
+
+            // If it was a quick click without movement, treat as teleport click
+            if (!hasMoved && dragDuration < 500) {
+                debugLog.info('Attempting teleport to partner', partnerId);
+                // Teleport to partner wormhole
+                const partner = document.querySelector(`.wormhole-portal[data-id="${partnerId}"]`);
+                debugLog.info('Found partner element', partner ? 'yes' : 'NO');
+                if (partner) {
+                    // Get partner's position in workspace coordinates
+                    const partnerLeft = parseFloat(partner.style.left);
+                    const partnerTop = parseFloat(partner.style.top);
+
+                    debugLog.info('Partner position (CSS)', { partnerLeft, partnerTop });
+
+                    const viewportStyle = window.getComputedStyle(viewport);
+                    const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+                    const paddingTop = parseFloat(viewportStyle.paddingTop);
+                    const viewportRect = viewport.getBoundingClientRect();
+                    const viewportWidth = viewportRect.width - paddingLeft * 2;
+                    const viewportHeight = viewportRect.height - paddingTop * 2;
+                    const centerX = viewportWidth / 2;
+                    const centerY = viewportHeight / 2;
+
+                    // Convert partner CSS to workspace coordinates
+                    const partnerWorkspaceX = partnerLeft - centerX;
+                    const partnerWorkspaceY = partnerTop - centerY;
+
+                    debugLog.info('Partner workspace coords', { partnerWorkspaceX, partnerWorkspaceY });
+
+                    // Pan to center the partner wormhole
+                    const viewportContent = document.querySelector('.viewport-content');
+                    if (viewportContent) {
+                        // Calculate pan needed to center partner
+                        const panX = -partnerWorkspaceX * currentZoom;
+                        const panY = -partnerWorkspaceY * currentZoom;
+
+                        debugLog.info('Applying pan', { panX, panY, currentZoom });
+
+                        viewportContent.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+
+                        // Set focal point to partner location
+                        focalPoint.x = partnerWorkspaceX;
+                        focalPoint.y = partnerWorkspaceY;
+
+                        debugLog.info('Teleported to partner wormhole', {
+                            from: wormholeId,
+                            to: partnerId,
+                            position: { x: partnerWorkspaceX, y: partnerWorkspaceY }
+                        });
+                    }
+                } else {
+                    debugLog.error('Partner wormhole not found!');
+                }
+            } else if (hasMoved) {
+                // Emit move event to server for persistence
+                const wormholeLeft = parseFloat(wormhole.style.left);
+                const wormholeTop = parseFloat(wormhole.style.top);
+
+                const viewportStyle = window.getComputedStyle(viewport);
+                const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+                const paddingTop = parseFloat(viewportStyle.paddingTop);
+                const viewportRect = viewport.getBoundingClientRect();
+                const viewportWidth = viewportRect.width - paddingLeft * 2;
+                const viewportHeight = viewportRect.height - paddingTop * 2;
+                const centerX = viewportWidth / 2;
+                const centerY = viewportHeight / 2;
+
+                const workspaceX = wormholeLeft - centerX;
+                const workspaceY = wormholeTop - centerY;
+
+                socket.emit('wormhole:move', {
+                    id: wormholeId,
+                    x: workspaceX,
+                    y: workspaceY
+                });
+            }
+        };
+
+        document.addEventListener('mousemove', moveWormhole);
+        document.addEventListener('mouseup', stopWormholeDrag);
+
+        viewportContent.appendChild(wormhole);
+        return wormhole;
+    }
+
+    // Continuous zoom and pan loop
+    function searchDragLoop() {
+        if (!isSearchDragging) {
+            searchAnimationFrame = null;
+            return;
+        }
+
+        const viewport = document.querySelector('.viewport');
+        const viewportContent = document.querySelector('.viewport-content');
+        if (viewport && viewportContent) {
+            // Auto-zoom out after delay (same timing as card drag)
+            const now = Date.now();
+            if (searchDragStartTime && (now - searchDragStartTime >= SEARCH_ZOOM_DELAY_MS)) {
+                if (currentZoom > MIN_ZOOM) {
+                    currentZoom = Math.max(MIN_ZOOM, currentZoom - SEARCH_ZOOM_SPEED);
+
+                    // Update transform with current zoom
+                    let panX = 0, panY = 0;
+                    const currentTransform = viewportContent.style.transform;
+                    if (currentTransform && currentTransform.includes('translate')) {
+                        const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+                        if (match) {
+                            panX = parseFloat(match[1]);
+                            panY = parseFloat(match[2]);
+                        }
+                    }
+                    viewportContent.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+                }
+            }
+        }
+
+        searchAnimationFrame = requestAnimationFrame(searchDragLoop);
+    }
+
+    if (zoomSearchBtn) {
+        zoomSearchBtn.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            isSearchDragging = true;
+            searchDragStartTime = Date.now();
+            activeSearchBtn = zoomSearchBtn;
+            zoomSearchBtn.style.opacity = '0.6';
+
+            // Create ghost element that follows cursor
+            searchGhost = document.createElement('div');
+            searchGhost.style.position = 'fixed';
+            searchGhost.style.pointerEvents = 'none';
+            searchGhost.style.zIndex = '10000';
+            searchGhost.style.width = '64px';
+            searchGhost.style.height = '64px';
+            searchGhost.style.opacity = '0.7';
+            searchGhost.style.left = (e.clientX - 32) + 'px';
+            searchGhost.style.top = (e.clientY - 32) + 'px';
+            searchGhost.innerHTML = zoomSearchBtn.innerHTML;
+            document.body.appendChild(searchGhost);
+
+            // Start continuous animation loop
+            if (!searchAnimationFrame) {
+                searchAnimationFrame = requestAnimationFrame(searchDragLoop);
+            }
+
+            debugLog.info('Zoom-search drag started');
+        });
+    }
+
+    if (wormholeBtn) {
+        console.log('ATTACHING MOUSEDOWN TO WORMHOLE BUTTON');
+        wormholeBtn.addEventListener('mousedown', function(e) {
+            console.log('WORMHOLE MOUSEDOWN FIRED!');
+            e.preventDefault();
+            isSearchDragging = true;
+            searchDragStartTime = Date.now();
+            activeSearchBtn = wormholeBtn;
+            wormholeBtn.style.opacity = '0.6';
+
+            // Create ghost element that follows cursor - circular for wormhole
+            searchGhost = document.createElement('div');
+            searchGhost.style.position = 'fixed';
+            searchGhost.style.pointerEvents = 'none';
+            searchGhost.style.zIndex = '10000';
+            searchGhost.style.width = '120px'; // Circular portal size
+            searchGhost.style.height = '120px'; // Circular portal size
+            searchGhost.style.opacity = '0.7';
+            searchGhost.style.left = (e.clientX - 60) + 'px'; // Center circle on cursor
+            searchGhost.style.top = (e.clientY - 60) + 'px';
+            searchGhost.style.display = 'flex';
+            searchGhost.style.alignItems = 'center';
+            searchGhost.style.justifyContent = 'center';
+            searchGhost.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+            searchGhost.style.border = '3px solid #666';
+            searchGhost.style.borderRadius = '50%'; // Make it circular
+            searchGhost.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.3)';
+            searchGhost.innerHTML = wormholeBtn.innerHTML;
+            // Scale up the SVG inside
+            const svg = searchGhost.querySelector('svg');
+            if (svg) {
+                svg.style.width = '96px';
+                svg.style.height = '96px';
+            }
+            document.body.appendChild(searchGhost);
+
+            // Start continuous animation loop
+            if (!searchAnimationFrame) {
+                searchAnimationFrame = requestAnimationFrame(searchDragLoop);
+            }
+
+            debugLog.info('Wormhole drag started');
+        });
+    }
+
+    // Global mouse move and up handlers for zoom-search
+    document.addEventListener('mousemove', function(e) {
+        if (!isSearchDragging) return;
+
+        // Update ghost position to follow cursor
+        if (searchGhost) {
+            // Different sizes for wormhole (120x120) vs zoom-search (64x64)
+            if (activeSearchBtn === wormholeBtn) {
+                searchGhost.style.left = (e.clientX - 60) + 'px'; // Center the 120px circle on cursor
+                searchGhost.style.top = (e.clientY - 60) + 'px';
+            } else {
+                searchGhost.style.left = (e.clientX - 32) + 'px'; // Center the 64px icon on cursor
+                searchGhost.style.top = (e.clientY - 32) + 'px';
+            }
+        }
+
+        const viewport = document.querySelector('.viewport');
+        const viewportContent = document.querySelector('.viewport-content');
+        if (!viewport || !viewportContent) return;
+
+        const rect = viewport.getBoundingClientRect();
+
+        // Only process if mouse is over viewport
+        if (e.clientX < rect.left || e.clientX > rect.right ||
+            e.clientY < rect.top || e.clientY > rect.bottom) {
+            return;
+        }
+
+        // Update focal point to mouse position
+        setFocalPointFromEvent(e);
+
+        // Auto-pan near edges (same logic as card drag)
+        const edgeThresholdX = rect.width * SEARCH_EDGE_RATIO;
+        const edgeThresholdY = rect.height * SEARCH_EDGE_RATIO;
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        let panX = 0, panY = 0;
+        const currentTransform = viewportContent.style.transform;
+        if (currentTransform && currentTransform.includes('translate')) {
+            const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+            if (match) {
+                panX = parseFloat(match[1]);
+                panY = parseFloat(match[2]);
+            }
+        }
+
+        if (mouseX < edgeThresholdX) panX += SEARCH_PAN_SPEED;
+        if (mouseX > rect.width - edgeThresholdX) panX -= SEARCH_PAN_SPEED;
+        if (mouseY < edgeThresholdY) panY += SEARCH_PAN_SPEED;
+        if (mouseY > rect.height - edgeThresholdY) panY -= SEARCH_PAN_SPEED;
+
+        viewportContent.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+
+        // Find and highlight nearest card
+        const mouseWorkspace = screenToWorkspaceNoPan(e.clientX, e.clientY);
+        const cards = viewportContent.querySelectorAll('.viewport-card');
+        let closestCard = null;
+        let closestDistance = Infinity;
+
+        cards.forEach(card => {
+            const cardLeft = parseFloat(card.style.left);
+            const cardTop = parseFloat(card.style.top);
+            const cardWidth = card.offsetWidth;
+            const cardHeight = card.offsetHeight;
+
+            // Card center in CSS coordinates
+            const cardCenterX = cardLeft + cardWidth / 2;
+            const cardCenterY = cardTop + cardHeight / 2;
+
+            // Convert to workspace coordinates
+            const viewportStyle = window.getComputedStyle(viewport);
+            const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+            const paddingTop = parseFloat(viewportStyle.paddingTop);
+            const viewportWidth = rect.width - paddingLeft * 2;
+            const viewportHeight = rect.height - paddingTop * 2;
+            const centerX = viewportWidth / 2;
+            const centerY = viewportHeight / 2;
+
+            const cardWorkspaceX = cardCenterX - centerX;
+            const cardWorkspaceY = cardCenterY - centerY;
+
+            const distance = Math.sqrt(
+                Math.pow(cardWorkspaceX - mouseWorkspace.x, 2) +
+                Math.pow(cardWorkspaceY - mouseWorkspace.y, 2)
+            );
+
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestCard = card;
+            }
+        });
+
+        // Update highlighted card
+        if (closestCard !== nearestCard) {
+            // Remove highlight from previous card
+            if (nearestCard) {
+                nearestCard.style.transform = '';
+                nearestCard.style.zIndex = nearestCard.dataset.originalZ || nearestCard.style.zIndex;
+                delete nearestCard.dataset.originalZ;
+            }
+
+            // Highlight new closest card
+            if (closestCard) {
+                closestCard.dataset.originalZ = closestCard.style.zIndex;
+                closestCard.style.zIndex = '10000';
+                closestCard.style.transform = 'scale(1.2)';
+            }
+
+            nearestCard = closestCard;
+        }
+    });
+
+    document.addEventListener('mouseup', function(e) {
+        if (!isSearchDragging) return;
+
+        debugLog.info('Mouseup detected', { activeSearchBtn: activeSearchBtn ? activeSearchBtn.id : 'none' });
+
+        // Stop the animation loop
+        isSearchDragging = false;
+
+        // Remove ghost element
+        if (searchGhost) {
+            searchGhost.remove();
+            searchGhost = null;
+        }
+
+        // Restore opacity of whichever button was being dragged
+        if (activeSearchBtn) {
+            activeSearchBtn.style.opacity = '1';
+        }
+
+        // Always zoom back in to 100% (1.0) at the drop location
+        const viewport = document.querySelector('.viewport');
+        const viewportContent = document.querySelector('.viewport-content');
+
+        if (viewport && viewportContent) {
+            const rect = viewport.getBoundingClientRect();
+
+            // Check if dropped over viewport
+            const droppedOnViewport = e.clientX >= rect.left && e.clientX <= rect.right &&
+                e.clientY >= rect.top && e.clientY <= rect.bottom;
+
+            debugLog.info('Drop check', { droppedOnViewport, isWormhole: activeSearchBtn === wormholeBtn });
+
+            if (droppedOnViewport) {
+                setFocalPointFromEvent(e);
+
+                // Special handling for wormhole button - create portal pair
+                if (activeSearchBtn === wormholeBtn) {
+                    debugLog.info('Creating wormhole pair on drop');
+                    const mouseWorkspace = screenToWorkspaceNoPan(e.clientX, e.clientY);
+                    debugLog.info('Drop workspace coords', { x: mouseWorkspace.x, y: mouseWorkspace.y });
+
+                    // Generate unique IDs for the wormhole pair
+                    const wormhole1Id = 'wormhole-' + Date.now() + '-1';
+                    const wormhole2Id = 'wormhole-' + Date.now() + '-2';
+                    debugLog.info('Generated wormhole IDs', { wormhole1Id, wormhole2Id });
+                    console.log('createWormholeElement exists?', typeof createWormholeElement);
+
+                    // Create first wormhole at drop location
+                    firstWormhole = createWormholeElement(mouseWorkspace.x, mouseWorkspace.y, wormhole1Id, wormhole2Id);
+                    debugLog.info('First wormhole created', { element: firstWormhole, id: wormhole1Id });
+
+                    // Create second wormhole stacked on top (slightly offset so visible)
+                    secondWormhole = createWormholeElement(mouseWorkspace.x + 5, mouseWorkspace.y + 5, wormhole2Id, wormhole1Id);
+                    debugLog.info('Second wormhole created', { element: secondWormhole, id: wormhole2Id });
+
+                    if (secondWormhole) {
+                        secondWormhole.style.border = '3px solid #00f'; // Blue border to distinguish
+                        secondWormhole.style.zIndex = '101'; // On top
+                    }
+
+                    // Emit socket events for persistence
+                    socket.emit('wormhole:add', {
+                        id: wormhole1Id,
+                        partnerId: wormhole2Id,
+                        x: mouseWorkspace.x,
+                        y: mouseWorkspace.y
+                    });
+
+                    socket.emit('wormhole:add', {
+                        id: wormhole2Id,
+                        partnerId: wormhole1Id,
+                        x: mouseWorkspace.x + 5,
+                        y: mouseWorkspace.y + 5
+                    });
+
+                    // Start dragging the second wormhole immediately
+                    wormholeState = 'placing-second';
+
+                    // Make second wormhole follow the mouse
+                    const dragSecondWormhole = function(moveEvent) {
+                        if (!secondWormhole) return;
+
+                        const moveWorkspace = screenToWorkspaceNoPan(moveEvent.clientX, moveEvent.clientY);
+                        const viewportStyle = window.getComputedStyle(viewport);
+                        const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+                        const paddingTop = parseFloat(viewportStyle.paddingTop);
+                        const viewportWidth = rect.width - paddingLeft * 2;
+                        const viewportHeight = rect.height - paddingTop * 2;
+                        const centerX = viewportWidth / 2;
+                        const centerY = viewportHeight / 2;
+
+                        const cssX = moveWorkspace.x + centerX;
+                        const cssY = moveWorkspace.y + centerY;
+
+                        secondWormhole.style.left = cssX + 'px';
+                        secondWormhole.style.top = cssY + 'px';
+                    };
+
+                    const finishSecondWormhole = function(upEvent) {
+                        document.removeEventListener('mousemove', dragSecondWormhole);
+                        document.removeEventListener('mouseup', finishSecondWormhole);
+
+                        // Get final position and emit move event
+                        if (secondWormhole) {
+                            const wormholeLeft = parseFloat(secondWormhole.style.left);
+                            const wormholeTop = parseFloat(secondWormhole.style.top);
+
+                            const viewportStyle = window.getComputedStyle(viewport);
+                            const paddingLeft = parseFloat(viewportStyle.paddingLeft);
+                            const paddingTop = parseFloat(viewportStyle.paddingTop);
+                            const viewportRect = viewport.getBoundingClientRect();
+                            const viewportWidth = viewportRect.width - paddingLeft * 2;
+                            const viewportHeight = viewportRect.height - paddingTop * 2;
+                            const centerX = viewportWidth / 2;
+                            const centerY = viewportHeight / 2;
+
+                            const workspaceX = wormholeLeft - centerX;
+                            const workspaceY = wormholeTop - centerY;
+
+                            socket.emit('wormhole:move', {
+                                id: wormhole2Id,
+                                x: workspaceX,
+                                y: workspaceY
+                            });
+                        }
+
+                        wormholeState = null;
+
+                        debugLog.info('Wormhole pair placed', {
+                            first: { x: firstWormhole.style.left, y: firstWormhole.style.top },
+                            second: { x: secondWormhole.style.left, y: secondWormhole.style.top }
+                        });
+                    };
+
+                    document.addEventListener('mousemove', dragSecondWormhole);
+                    document.addEventListener('mouseup', finishSecondWormhole);
+
+                    debugLog.info('Wormhole placement started - drag to position second portal');
+                }
+            }
+
+            // Zoom back in to 100% (always, regardless of where dropped)
+            currentZoom = 1.0;
+
+            // Get current pan from transform
+            let panX = 0, panY = 0;
+            const currentTransform = viewportContent.style.transform;
+            if (currentTransform && currentTransform.includes('translate')) {
+                const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
+                if (match) {
+                    panX = parseFloat(match[1]);
+                    panY = parseFloat(match[2]);
+                }
+            }
+            viewportContent.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+
+            debugLog.info('Search tool dropped, zoomed to 100%', {
+                tool: activeSearchBtn === zoomSearchBtn ? 'zoom-search' : 'wormhole',
+                focalPoint: { ...focalPoint },
+                zoom: currentZoom
+            });
+        }
+
+        // Remove highlight from card
+        if (nearestCard) {
+            nearestCard.style.transform = '';
+            nearestCard.style.zIndex = nearestCard.dataset.originalZ || nearestCard.style.zIndex;
+            delete nearestCard.dataset.originalZ;
+            nearestCard = null;
+        }
+
+        searchDragStartTime = null;
+        activeSearchBtn = null;
+    });
+
     // Card creation functionality with color wheel
     const addCardBtn = document.getElementById('add-card-btn');
     const modal = document.getElementById('card-modal');
@@ -2053,8 +2711,14 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentPanY = 0;
 
     viewport.addEventListener('mousedown', function(e) {
-        // Only pan if clicking directly on viewport or viewport-content (not on a card)
+        // Only pan if clicking directly on viewport or viewport-content (not on a card or wormhole)
         const viewportContent = document.querySelector('.viewport-content');
+
+        // Don't pan if clicking on a wormhole or its children
+        if (e.target.closest('.wormhole-portal')) {
+            return;
+        }
+
         if (e.target === viewport || e.target === viewportContent
             || e.target.classList.contains('viewport') || e.target.classList.contains('viewport-content')
             || (e.target.tagName === 'P' && e.target.parentElement === viewport)) {
