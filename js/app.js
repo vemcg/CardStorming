@@ -145,6 +145,15 @@ function openProject(projectId) {
     appState.projectId = projectId;
     appState.clearAll();
 
+    // Set project name from localStorage if available
+    const knownProjects = getKnownProjects();
+    const projectNameEl = document.getElementById('project-name');
+    if (knownProjects[projectId] && projectNameEl) {
+        projectNameEl.value = knownProjects[projectId];
+        appState.projectName = knownProjects[projectId];
+        debugLog.info('Set project name from localStorage', { name: knownProjects[projectId] });
+    }
+
     // Tell server to join this project room
     if (socket && socket.connected) {
         debugLog.info('Emitting project:join', { projectId, socketConnected: socket.connected });
