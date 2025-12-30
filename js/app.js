@@ -146,16 +146,31 @@ function openProject(projectId) {
     const userIdentity = getUserIdentity(projectId);
     if (userIdentity) {
         currentUserInitials = userIdentity.initials;
-        socket.emit('user:register', {
-            initials: userIdentity.initials,
-            name: userIdentity.name,
-            projectId: projectId
-        }, (response) => {
-            if (!response.success) {
-                debugLog.error('Failed to register returning user', response);
-                showIdentityModal(projectId);
-            }
-        });
+
+        // Try to register with stored credentials
+        const attemptRegistration = (retryCount = 0) => {
+            socket.emit('user:register', {
+                initials: userIdentity.initials,
+                name: userIdentity.name,
+                projectId: projectId
+            }, (response) => {
+                if (!response.success) {
+                    // If initials are taken and we haven't retried, wait and retry once
+                    if (retryCount === 0 && response.message.includes('already taken')) {
+                        debugLog.warn('Registration failed, retrying in 500ms', response);
+                        setTimeout(() => attemptRegistration(1), 500);
+                    } else {
+                        // After retry or other error, show identity modal
+                        debugLog.error('Failed to register returning user', response);
+                        showIdentityModal(projectId);
+                    }
+                } else {
+                    debugLog.info('Successfully registered returning user', { initials: userIdentity.initials });
+                }
+            });
+        };
+
+        attemptRegistration();
     } else {
         showIdentityModal(projectId);
     }
@@ -895,16 +910,7 @@ document.addEventListener('DOMContentLoaded', function() {
     socket = io();
     appState.socket = socket;
 
-    // Get project ID from URL
-    currentProjectId = getProjectIdFromURL();
-
-    if (currentProjectId) {
-        openProject(currentProjectId);
-    } else {
-        closeProject();
-    }
-
-    // Setup all event listeners
+    // Setup all event listeners first (before connecting)
     setupMenuHandlers();
     setupZoomControls();
     setupToolbarButtons();
@@ -912,6 +918,42 @@ document.addEventListener('DOMContentLoaded', function() {
     setupViewportDrag();
     setupEditModal();
     setupSocketHandlers();
+
+    // Wait for socket to connect before opening project
+    socket.on('connect', () => {
+        debugLog.info('Socket connected', { socketId: socket.id });
+
+        // Get project ID from URL
+        const projectIdFromURL = getProjectIdFromURL();
+
+        if (projectIdFromURL) {
+            openProject(projectIdFromURL);
+        } else {
+            closeProject();
+        }
+    });
+
+    // Handle reconnection
+    socket.on('reconnect', () => {
+        debugLog.info('Socket reconnected', { socketId: socket.id });
+
+        // Re-register user if project is open
+        if (isProjectOpen && currentProjectId) {
+            const userIdentity = getUserIdentity(currentProjectId);
+            if (userIdentity) {
+                currentUserInitials = userIdentity.initials;
+                socket.emit('user:register', {
+                    initials: userIdentity.initials,
+                    name: userIdentity.name,
+                    projectId: currentProjectId
+                }, (response) => {
+                    if (!response.success) {
+                        debugLog.error('Failed to re-register on reconnect', response);
+                    }
+                });
+            }
+        }
+    });
 
     // Hash change listener
     window.addEventListener('hashchange', () => {
