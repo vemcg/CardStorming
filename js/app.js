@@ -623,8 +623,8 @@ function setupSocketHandlers() {
     socket.on('viewport:add', (cardData) => {
         const viewportContent = document.querySelector('.viewport-content');
         const card = new Card(
-            cardData.left,  // Server still uses 'left'
-            cardData.top,   // Server still uses 'top'
+            cardData.x,
+            cardData.y,
             cardData.id,
             cardData.header,
             cardData.body,
@@ -667,8 +667,8 @@ function setupSocketHandlers() {
     socket.on('viewport:move', (data) => {
         const card = appState.getCard(data.id);
         if (card) {
-            card.x = data.left;
-            card.y = data.top;
+            card.x = data.x;
+            card.y = data.y;
             card.zIndex = data.zIndex;
             card.element.style.zIndex = data.zIndex;
             card.updatePosition(viewportManager);

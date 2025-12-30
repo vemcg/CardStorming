@@ -105,10 +105,10 @@ function getProject(projectId) {
 // Maintains relative ordering while resetting values to start from 1
 function normalizeZIndex(projectId) {
     const project = projects.get(projectId);
-    if (!project || project.viewportCards.length === 0) return;
+    if (!project || project.cards.length === 0) return;
 
     // Sort cards by current z-index
-    const sortedCards = [...project.viewportCards].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+    const sortedCards = [...project.cards].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
 
     // Reassign z-index values starting from 1
     sortedCards.forEach((card, index) => {
@@ -118,7 +118,7 @@ function normalizeZIndex(projectId) {
     // Update maxZIndex
     project.maxZIndex = sortedCards.length;
 
-    console.log(`Normalized z-index for project ${projectId}: ${project.viewportCards.length} cards, maxZIndex reset to ${project.maxZIndex}`);
+    console.log(`Normalized z-index for project ${projectId}: ${project.cards.length} cards, maxZIndex reset to ${project.maxZIndex}`);
 
     markProjectDirty(projectId);
 }
@@ -303,7 +303,7 @@ io.on('connection', (socket) => {
 
         project.maxZIndex++;
         cardData.zIndex = project.maxZIndex;
-        project.viewportCards.push(cardData);
+        project.cards.push(cardData);
         markProjectDirty(projectId);
         io.to(projectId).emit('viewport:add', cardData);
     });
@@ -312,7 +312,7 @@ io.on('connection', (socket) => {
     socket.on('viewport:update', (data) => {
         const project = getProject(projectId);
         const { id, header, body } = data;
-        const card = project.viewportCards.find(c => c.id === id);
+        const card = project.cards.find(c => c.id === id);
         if (card) {
             // Check if we need to normalize z-index (prevent overflow)
             if (project.maxZIndex > 5000) {
@@ -332,8 +332,8 @@ io.on('connection', (socket) => {
     // Handle viewport card move
     socket.on('viewport:move', (data) => {
         const project = getProject(projectId);
-        const { id, left, top } = data;
-        const card = project.viewportCards.find(c => c.id === id);
+        const { id, x, y } = data;
+        const card = project.cards.find(c => c.id === id);
         if (card) {
             // Check if we need to normalize z-index (prevent overflow)
             if (project.maxZIndex > 5000) {
@@ -341,19 +341,19 @@ io.on('connection', (socket) => {
                 io.to(projectId).emit('state:sync', project);
             }
 
-            card.left = left;
-            card.top = top;
+            card.x = x;
+            card.y = y;
             project.maxZIndex++;
             card.zIndex = project.maxZIndex;
             markProjectDirty(projectId);
-            io.to(projectId).emit('viewport:move', { id, left, top, zIndex: card.zIndex });
+            io.to(projectId).emit('viewport:move', { id, x, y, zIndex: card.zIndex });
         }
     });
 
     // Handle clear viewport (delete all cards and wormholes)
     socket.on('viewport:clear', () => {
         const project = getProject(projectId);
-        project.viewportCards = [];
+        project.cards = [];
         project.wormholes = [];
         markProjectDirty(projectId);
         io.to(projectId).emit('viewport:clear');

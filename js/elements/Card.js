@@ -157,8 +157,8 @@ export class Card extends DraggableElement {
                     if (appState.socket) {
                         appState.socket.emit('viewport:move', {
                             id: this.id,
-                            left: this.x,
-                            top: this.y,
+                            x: this.x,
+                            y: this.y,
                             zIndex: this.zIndex
                         });
                     }
@@ -172,8 +172,8 @@ export class Card extends DraggableElement {
         if (appState.socket) {
             appState.socket.emit('viewport:move', {
                 id: this.id,
-                left: this.x,
-                top: this.y,
+                x: this.x,
+                y: this.y,
                 zIndex: this.zIndex
             });
         }
