@@ -920,16 +920,25 @@ document.addEventListener('DOMContentLoaded', function() {
     setupSocketHandlers();
 
     // Wait for socket to connect before opening project
+    // This only runs on initial connection - reconnections are handled separately
+    let hasInitiallyConnected = false;
     socket.on('connect', () => {
         debugLog.info('Socket connected', { socketId: socket.id });
 
-        // Get project ID from URL
-        const projectIdFromURL = getProjectIdFromURL();
+        // Only handle initial connection here - don't interfere with open projects on reconnect
+        if (!hasInitiallyConnected) {
+            hasInitiallyConnected = true;
 
-        if (projectIdFromURL) {
-            openProject(projectIdFromURL);
+            // Get project ID from URL
+            const projectIdFromURL = getProjectIdFromURL();
+
+            if (projectIdFromURL) {
+                openProject(projectIdFromURL);
+            } else {
+                closeProject();
+            }
         } else {
-            closeProject();
+            debugLog.info('Socket reconnected (initial connect already handled)');
         }
     });
 
