@@ -755,6 +755,80 @@ function setupWormholeDragHandlers(wormhole) {
 }
 
 // ============================================================================
+// PALETTE CARD HANDLERS
+// ============================================================================
+
+function setupPaletteCards() {
+    const paletteCards = document.querySelectorAll('.palette-card');
+    const viewportContent = document.querySelector('.viewport-content');
+
+    paletteCards.forEach(paletteCard => {
+        paletteCard.addEventListener('dragstart', (e) => {
+            e.dataTransfer.effectAllowed = 'copy';
+            e.dataTransfer.setData('application/json', JSON.stringify({
+                type: paletteCard.dataset.cardType,
+                color: paletteCard.dataset.cardColor
+            }));
+            paletteCard.classList.add('dragging');
+        });
+
+        paletteCard.addEventListener('dragend', (e) => {
+            paletteCard.classList.remove('dragging');
+        });
+    });
+
+    // Handle drop on viewport
+    viewportContent.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+    });
+
+    viewportContent.addEventListener('drop', (e) => {
+        e.preventDefault();
+
+        try {
+            const data = JSON.parse(e.dataTransfer.getData('application/json'));
+            if (!data.type || !data.color) return;
+
+            // Get workspace coordinates from drop position
+            const workspacePos = CoordinateSystem.screenToWorkspace(
+                e.clientX,
+                e.clientY,
+                viewportManager.viewport,
+                viewportManager.currentZoom,
+                viewportManager.currentPan
+            );
+
+            // Create new card
+            const cardId = 'card-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            const card = new Card(
+                workspacePos.x,
+                workspacePos.y,
+                cardId,
+                data.type,
+                '',
+                data.color,
+                currentUserInitials,
+                1
+            );
+
+            viewportContent.appendChild(card.render(viewportManager));
+            appState.addCard(card);
+            setupCardDragHandlers(card);
+
+            // Emit to server
+            if (socket) {
+                socket.emit('viewport:add', card.serialize());
+            }
+
+            debugLog.info('Card created from palette', { id: cardId, type: data.type, color: data.color });
+        } catch (err) {
+            debugLog.error('Failed to create card from palette', err);
+        }
+    });
+}
+
+// ============================================================================
 // MAIN INITIALIZATION
 // ============================================================================
 
@@ -784,6 +858,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setupMenuHandlers();
     setupZoomControls();
     setupToolbarButtons();
+    setupPaletteCards();
     setupViewportDrag();
     setupEditModal();
     setupSocketHandlers();
