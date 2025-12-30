@@ -1212,7 +1212,6 @@ function setupWormholeDragHandlers(wormhole) {
 
 function setupPaletteCards() {
     const paletteCards = document.querySelectorAll('.palette-card');
-    const viewportContent = document.querySelector('.viewport-content');
 
     paletteCards.forEach(paletteCard => {
         paletteCard.addEventListener('dragstart', (e) => {
@@ -1222,12 +1221,20 @@ function setupPaletteCards() {
                 color: paletteCard.dataset.cardColor
             }));
             paletteCard.classList.add('dragging');
+            debugLog.info('Palette card drag started', {
+                type: paletteCard.dataset.cardType,
+                color: paletteCard.dataset.cardColor
+            });
         });
 
         paletteCard.addEventListener('dragend', (e) => {
             paletteCard.classList.remove('dragging');
         });
     });
+}
+
+function setupPaletteDropZone() {
+    const viewportContent = document.querySelector('.viewport-content');
 
     // Handle drop on viewport
     viewportContent.addEventListener('dragover', (e) => {
@@ -1238,9 +1245,26 @@ function setupPaletteCards() {
     viewportContent.addEventListener('drop', (e) => {
         e.preventDefault();
 
+        debugLog.info('Drop event on viewport', {
+            clientX: e.clientX,
+            clientY: e.clientY,
+            dataTypes: Array.from(e.dataTransfer.types)
+        });
+
         try {
-            const data = JSON.parse(e.dataTransfer.getData('application/json'));
-            if (!data.type || !data.color) return;
+            const jsonData = e.dataTransfer.getData('application/json');
+            debugLog.info('Drop data retrieved', { jsonData });
+
+            if (!jsonData) {
+                debugLog.warn('No JSON data in drop event');
+                return;
+            }
+
+            const data = JSON.parse(jsonData);
+            if (!data.type || !data.color) {
+                debugLog.warn('Invalid palette card data', data);
+                return;
+            }
 
             // Get workspace coordinates from drop position
             const workspacePos = CoordinateSystem.screenToWorkspace(
@@ -1250,6 +1274,12 @@ function setupPaletteCards() {
                 viewportManager.currentZoom,
                 viewportManager.currentPan
             );
+
+            debugLog.info('Creating card from palette', {
+                type: data.type,
+                color: data.color,
+                workspacePos
+            });
 
             // Create new card
             const cardId = 'card-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
@@ -1307,6 +1337,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     setupZoomControls();
     setupToolbarButtons();
     setupPaletteCards();
+    setupPaletteDropZone();
     setupViewportDrag();
     setupEditModal();
     setupCardCreationModal();
