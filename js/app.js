@@ -143,6 +143,11 @@ function openProject(projectId) {
     appState.projectId = projectId;
     appState.clearAll();
 
+    // Tell server to join this project room
+    if (socket && socket.connected) {
+        socket.emit('project:join', { projectId });
+    }
+
     const userIdentity = getUserIdentity(projectId);
     if (userIdentity) {
         currentUserInitials = userIdentity.initials;
@@ -638,13 +643,22 @@ function setupSocketHandlers() {
 
         // Set project name
         if (serverState.projectName) {
+            debugLog.info('Using server project name', { name: serverState.projectName });
             projectNameEl.value = serverState.projectName;
             appState.projectName = serverState.projectName;
             saveKnownProject(currentProjectId, serverState.projectName);
         } else {
             const knownProjects = getKnownProjects();
+            debugLog.info('Server has no project name, checking localStorage', {
+                knownProjects,
+                currentProjectId,
+                hasStoredName: !!knownProjects[currentProjectId]
+            });
             const name = knownProjects[currentProjectId] || generateProjectName();
+            debugLog.info('Project name determined', { name, wasGenerated: !knownProjects[currentProjectId] });
             projectNameEl.value = name;
+            appState.projectName = name;
+            saveKnownProject(currentProjectId, name);  // Save to localStorage immediately
             socket.emit('project:rename', { projectId: currentProjectId, name });
         }
 
@@ -906,8 +920,10 @@ document.addEventListener('DOMContentLoaded', function() {
     viewportManager = new ViewportManager(viewport, viewportContent);
     window.viewportManager = viewportManager; // For debugging
 
-    // Initialize socket.io
-    socket = io();
+    // Initialize socket.io with project ID from URL if available
+    const initialProjectId = getProjectIdFromURL();
+    const socketOptions = initialProjectId ? { query: { projectId: initialProjectId } } : {};
+    socket = io(socketOptions);
     appState.socket = socket;
 
     // Setup all event listeners first (before connecting)

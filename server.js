@@ -212,6 +212,27 @@ io.on('connection', (socket) => {
     }
     socket.emit('state:init', project);
 
+    // Handle client joining a different project
+    socket.on('project:join', (data) => {
+        const { projectId: newProjectId } = data;
+        console.log(`Client ${socket.id} switching to project:`, newProjectId);
+
+        // Leave all current rooms (except the socket's own room)
+        const rooms = Array.from(socket.rooms);
+        rooms.forEach(room => {
+            if (room !== socket.id) {
+                socket.leave(room);
+            }
+        });
+
+        // Join new project room
+        socket.join(newProjectId);
+
+        // Send state for new project
+        const newProject = getProject(newProjectId);
+        socket.emit('state:init', newProject);
+    });
+
     // Handle user validation (check if initials are available)
     socket.on('user:validate', (data, callback) => {
         const project = getProject(data.projectId);
