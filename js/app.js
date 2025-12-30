@@ -677,6 +677,12 @@ function setupSocketHandlers() {
 
     // Card added by another user
     socket.on('viewport:add', (cardData) => {
+        // Check if card already exists (avoid duplicates from our own emits)
+        if (appState.getCard(cardData.id)) {
+            debugLog.info('Card already exists, skipping duplicate', { id: cardData.id });
+            return;
+        }
+
         const viewportContent = document.querySelector('.viewport-content');
         const card = new Card(
             cardData.x,
@@ -696,6 +702,12 @@ function setupSocketHandlers() {
 
     // Wormhole added by another user
     socket.on('wormhole:add', (wormholeData) => {
+        // Check if wormhole already exists (avoid duplicates from our own emits)
+        if (appState.getWormhole(wormholeData.id)) {
+            debugLog.info('Wormhole already exists, skipping duplicate', { id: wormholeData.id });
+            return;
+        }
+
         const viewportContent = document.querySelector('.viewport-content');
         const wormhole = new Wormhole(
             wormholeData.x,
