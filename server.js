@@ -161,7 +161,8 @@ function deserializeProject(data) {
         ...data,
         users,
         cards: data.cards || [],
-        wormholes: data.wormholes || []
+        wormholes: data.wormholes || [],
+        paletteCards: data.paletteCards || []
     };
 }
 
@@ -194,6 +195,43 @@ app.get('/api/reset', (req, res) => {
     projects.clear();
     console.log('All projects have been reset');
     res.send('<html><body><h1>Database Reset Complete</h1><p>All projects have been cleared.</p><p><a href="/">Return to CardStorming</a></p></body></html>');
+});
+
+// List all projects endpoint
+app.get('/api/projects', (req, res) => {
+    try {
+        const files = fs.readdirSync(DATA_DIR);
+        const projectList = [];
+
+        files.forEach(file => {
+            if (file.endsWith('.json')) {
+                const projectId = file.replace('.json', '');
+                const filePath = path.join(DATA_DIR, file);
+                const data = fs.readFileSync(filePath, 'utf8');
+                const project = JSON.parse(data);
+
+                // Extract project name (handle both string and object formats)
+                let projectName = 'Unnamed Project';
+                if (typeof project.projectName === 'string') {
+                    projectName = project.projectName;
+                } else if (project.projectName && project.projectName.name) {
+                    projectName = project.projectName.name;
+                }
+
+                projectList.push({
+                    id: projectId,
+                    name: projectName,
+                    cardCount: project.cards ? project.cards.length : 0,
+                    wormholeCount: project.wormholes ? project.wormholes.length : 0
+                });
+            }
+        });
+
+        res.json({ success: true, projects: projectList });
+    } catch (err) {
+        console.error('Error listing projects:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
 });
 
 // WebSocket connection handling

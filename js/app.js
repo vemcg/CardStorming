@@ -991,12 +991,22 @@ function setupSocketHandlers() {
         const projectNameEl = document.getElementById('project-name');
         const viewportContent = document.querySelector('.viewport-content');
 
-        // Set project name
+        // Set project name - handle both string and object formats
         if (serverState.projectName) {
-            debugLog.info('Using server project name', { name: serverState.projectName });
-            projectNameEl.value = serverState.projectName;
-            appState.projectName = serverState.projectName;
-            saveKnownProject(currentProjectId, serverState.projectName);
+            // Handle both string and object formats
+            let projectName;
+            if (typeof serverState.projectName === 'string') {
+                projectName = serverState.projectName;
+            } else if (serverState.projectName && serverState.projectName.name) {
+                projectName = serverState.projectName.name;
+            } else {
+                projectName = generateProjectName();
+            }
+
+            debugLog.info('Using server project name', { name: projectName, raw: serverState.projectName });
+            projectNameEl.value = projectName;
+            appState.projectName = projectName;
+            saveKnownProject(currentProjectId, projectName);
         } else {
             const knownProjects = getKnownProjects();
             debugLog.info('Server has no project name, checking localStorage', {

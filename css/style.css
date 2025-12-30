@@ -483,6 +483,7 @@ body {
     width: 100%;
     min-height: 80px;
     padding: 0 10px 10px 10px;
+    margin-bottom: 15px;
     border: 1px solid #999;
     border-radius: 3px;
     box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);

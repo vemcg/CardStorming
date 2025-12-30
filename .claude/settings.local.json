@@ -14,7 +14,16 @@
       "Bash(git commit:*)",
       "Bash(pkill:*)",
       "Bash(taskkill:*)",
-      "Bash(start.bat)"
+      "Bash(start.bat)",
+      "Bash(tasklist:*)",
+      "Bash(findstr:*)",
+      "Bash(cmd /c start.bat)",
+      "Bash(timeout /t 3 /nobreak)",
+      "Bash(cmd /c \"taskkill /F /IM node.exe\")",
+      "Bash(cmd /c \"taskkill /F /PID 34472 && taskkill /F /PID 45180\")",
+      "Bash(powershell -Command \"Stop-Process -Id 34472, 45180 -Force\")",
+      "Bash(dir:*)",
+      "Bash(powershell -Command \"Stop-Process -Name node -Force\")"
     ],
     "deny": [],
     "ask": []
