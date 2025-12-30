@@ -1367,13 +1367,13 @@ function setupPaletteDropZone() {
                 workspacePos
             });
 
-            // Create new card
+            // Create new card with blank header (not palette type)
             const cardId = 'card-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
             const card = new Card(
                 workspacePos.x,
                 workspacePos.y,
                 cardId,
-                data.type,
+                '', // Start with blank header
                 '',
                 data.color,
                 currentUserInitials,
@@ -1390,6 +1390,15 @@ function setupPaletteDropZone() {
             }
 
             debugLog.info('Card created from palette', { id: cardId, type: data.type, color: data.color });
+
+            // Auto-open edit modal at drop position
+            const editEvent = new CustomEvent('card:edit', {
+                detail: {
+                    card: card,
+                    mouseEvent: e
+                }
+            });
+            document.dispatchEvent(editEvent);
         } catch (err) {
             debugLog.error('Failed to create card from palette', err);
         }
