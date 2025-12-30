@@ -744,17 +744,70 @@ function setupEditModal() {
     const editModal = document.getElementById('edit-modal');
     const editCardHeader = document.getElementById('edit-card-header');
     const editCardBody = document.getElementById('edit-card-body');
+    const editCardVisual = document.getElementById('edit-card-visual');
     const editSave = document.getElementById('edit-save');
     const editCancel = document.getElementById('edit-cancel');
+    const editClose = document.getElementById('edit-close');
+    const editDelete = document.getElementById('edit-delete');
+
+    // Prevent Enter key in header from creating newline - move to body instead
+    if (editCardHeader) {
+        editCardHeader.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                editCardBody.focus();
+                // Move cursor to start of body
+                const range = document.createRange();
+                const sel = window.getSelection();
+                range.setStart(editCardBody, 0);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        });
+    }
 
     // Listen for custom card:edit event
     document.addEventListener('card:edit', (e) => {
         const card = e.detail.card;
+        const mouseEvent = e.detail.mouseEvent;
 
         editCardHeader.textContent = card.header;
         editCardBody.textContent = card.body;
         editModal.dataset.editingCardId = card.id;
-        editModal.style.display = 'block';
+
+        // Set the card color on the visual preview
+        if (editCardVisual) {
+            editCardVisual.style.backgroundColor = card.color;
+        }
+
+        // Position modal near the card if we have mouse event coordinates
+        if (mouseEvent) {
+            // Position modal centered on click position
+            const modalWidth = 400;
+            const modalHeight = 300;
+
+            let left = mouseEvent.clientX - modalWidth / 2;
+            let top = mouseEvent.clientY - modalHeight / 2;
+
+            // Keep modal within viewport bounds
+            left = Math.max(10, Math.min(left, window.innerWidth - modalWidth - 10));
+            top = Math.max(10, Math.min(top, window.innerHeight - modalHeight - 10));
+
+            editModal.style.display = 'block';
+            editModal.style.position = 'fixed';
+            editModal.style.left = left + 'px';
+            editModal.style.top = top + 'px';
+            editModal.style.transform = 'none';
+        } else {
+            // Fallback to centered if no mouse event
+            editModal.style.display = 'flex';
+            editModal.style.position = 'fixed';
+            editModal.style.left = '50%';
+            editModal.style.top = '50%';
+            editModal.style.transform = 'translate(-50%, -50%)';
+        }
+
         editCardHeader.focus();
     });
 

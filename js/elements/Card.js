@@ -122,7 +122,10 @@ export class Card extends DraggableElement {
 
         // Trigger edit modal (will be handled by app.js)
         const editEvent = new CustomEvent('card:edit', {
-            detail: { card: this }
+            detail: {
+                card: this,
+                mouseEvent: e
+            }
         });
         document.dispatchEvent(editEvent);
     }

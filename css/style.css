@@ -891,22 +891,16 @@ body {
     right: 0;
     bottom: 0;
     background-image:
-        linear-gradient(to bottom,
-            transparent 0px,
-            transparent 20px,
-            #ff69b4 20px,
-            #ff69b4 21px,
-            transparent 21px
-        ),
+        linear-gradient(to right, #FFB6C1 0%, #FFB6C1 100%),
         repeating-linear-gradient(
             to bottom,
-            transparent,
+            transparent 0px,
             transparent 19px,
             #87CEEB 19px,
             #87CEEB 20px
         );
-    background-size: 100% 100%, 100% 20px;
-    background-position: 0 0, 0 21px;
+    background-position: 0 20px, 0 20px;
+    background-size: 100% 1px, 100% 20px;
     background-repeat: no-repeat, repeat;
     border-radius: 3px;
     z-index: 0;
