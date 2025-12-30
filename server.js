@@ -88,9 +88,10 @@ function getProject(projectId) {
         } else {
             // Create new project
             projects.set(projectId, {
+                version: 2, // Schema version
                 projectName: null,
                 paletteCards: [],
-                viewportCards: [],
+                cards: [], // New format (was viewportCards)
                 wormholes: [], // Array of wormhole objects
                 maxZIndex: 1,
                 users: new Map() // initials -> {name, socketId}
@@ -133,16 +134,34 @@ function serializeProject(project) {
     };
 }
 
-// Convert plain object back to Map
+// Convert plain object back to Map and migrate old formats
 function deserializeProject(data) {
     const users = new Map();
     if (data.users && Array.isArray(data.users)) {
         data.users.forEach(u => users.set(u.initials, { name: u.name, socketId: null }));
     }
+
+    // Determine version (old projects won't have this field)
+    const currentVersion = data.version || 1;
+
+    // Migrate from v1 to v2 if needed
+    if (currentVersion === 1 && data.viewportCards && !data.cards) {
+        console.log('Migrating project from v1 to v2 (viewportCards → cards)');
+        data.cards = data.viewportCards.map(card => ({
+            ...card,
+            x: card.left,
+            y: card.top
+        }));
+        delete data.viewportCards;
+        data.version = 2;
+    }
+
     return {
+        version: data.version || 2, // Default to v2 for new projects
         ...data,
         users,
-        wormholes: data.wormholes || [] // Ensure wormholes array exists
+        cards: data.cards || [],
+        wormholes: data.wormholes || []
     };
 }
 

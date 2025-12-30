@@ -92,13 +92,22 @@ function saveUserIdentity(projectId, initials, name) {
 // ============================================================================
 
 /**
- * Migrate old project format to new format
+ * Migrate old project format to new format (fallback for client-side)
+ * Server should handle most migration, but this provides fallback
  * Old: { viewportCards: [{left, top, ...}] }
  * New: { cards: [{x, y, ...}] }
  */
 function migrateProjectData(serverState) {
+    // Log version info
+    const version = serverState.version || 1;
+    debugLog.info('Received project data', { version });
+
+    // Fallback migration (server should have done this already)
     if (serverState.viewportCards && !serverState.cards) {
-        debugLog.info('Migrating old project format to new format');
+        debugLog.warn('Client-side migration detected (server should have migrated)', {
+            hasViewportCards: !!serverState.viewportCards,
+            hasCards: !!serverState.cards
+        });
         serverState.cards = serverState.viewportCards.map(oldCard => ({
             id: oldCard.id,
             header: oldCard.header,
@@ -110,9 +119,10 @@ function migrateProjectData(serverState) {
             authorInitials: oldCard.authorInitials
         }));
         delete serverState.viewportCards;
-        debugLog.info('Migration complete', { cardCount: serverState.cards.length });
+        debugLog.info('Client-side migration complete', { cardCount: serverState.cards.length });
     }
 
+    // Ensure arrays exist
     serverState.cards = serverState.cards || [];
     serverState.wormholes = serverState.wormholes || [];
     serverState.paletteCards = serverState.paletteCards || [];
