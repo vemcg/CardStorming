@@ -643,14 +643,11 @@ function setupSocketHandlers() {
         // Migrate old format if needed
         serverState = migrateProjectData(serverState);
 
-        // If we don't have a currentProjectId but the server sent us state,
-        // it means we're connected to the 'default' project
-        if (!currentProjectId) {
-            currentProjectId = 'default';
-            isProjectOpen = true;
-            appState.projectId = 'default';
-            setProjectIdInURL('default');
-            debugLog.info('Adopting default project from server', { projectId: 'default' });
+        // If we don't have a currentProjectId, ignore the state from server
+        // The user must explicitly open/create a project
+        if (!currentProjectId || !isProjectOpen) {
+            debugLog.info('Ignoring state:init - no project is open');
+            return;
         }
 
         // Clear existing state
