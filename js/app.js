@@ -191,6 +191,9 @@ function openProject(projectId) {
     const shareBtn = document.getElementById('share-btn');
     if (shareBtn) shareBtn.style.display = 'inline-block';
 
+    // Enable toolbar buttons
+    enableToolbarButtons();
+
     debugLog.info('Project opened', { projectId });
 }
 
@@ -209,7 +212,50 @@ function closeProject() {
     const projectNameEl = document.getElementById('project-name');
     if (projectNameEl) projectNameEl.value = '';
 
+    // Disable toolbar buttons
+    disableToolbarButtons();
+
     debugLog.info('Project closed');
+}
+
+function enableToolbarButtons() {
+    const buttons = [
+        'add-card-btn',
+        'add-wormhole-btn',
+        'zoom-search-btn',
+        'zoom-in-btn',
+        'zoom-out-btn',
+        'zoom-center-btn'
+    ];
+
+    buttons.forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+        }
+    });
+}
+
+function disableToolbarButtons() {
+    const buttons = [
+        'add-card-btn',
+        'add-wormhole-btn',
+        'zoom-search-btn',
+        'zoom-in-btn',
+        'zoom-out-btn',
+        'zoom-center-btn'
+    ];
+
+    buttons.forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.disabled = true;
+            btn.style.opacity = '0.3';
+            btn.style.cursor = 'not-allowed';
+        }
+    });
 }
 
 function showIdentityModal(projectId) {
@@ -253,15 +299,49 @@ function showIdentityModal(projectId) {
 // MENU HANDLERS
 // ============================================================================
 
+function populateOpenSubmenu() {
+    const openSubmenu = document.getElementById('open-submenu');
+    if (!openSubmenu) return;
+
+    const knownProjects = getKnownProjects();
+    const projectIds = Object.keys(knownProjects);
+
+    if (projectIds.length === 0) {
+        openSubmenu.innerHTML = '<a href="#" class="disabled-item">No projects</a>';
+        return;
+    }
+
+    openSubmenu.innerHTML = '';
+    projectIds.forEach(projectId => {
+        const projectName = knownProjects[projectId];
+        const link = document.createElement('a');
+        link.href = '#';
+        link.textContent = projectName;
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            openProject(projectId);
+        });
+        openSubmenu.appendChild(link);
+    });
+}
+
 function setupMenuHandlers() {
     const projectNameEl = document.getElementById('project-name');
     const newMenuItem = document.getElementById('menu-new');
+    const openMenuItem = document.getElementById('menu-open');
     const closeMenuItem = document.getElementById('menu-close');
     const deleteProjectMenuItem = document.getElementById('menu-delete-project');
     const showLogMenuItem = document.getElementById('menu-show-log');
     const logModal = document.getElementById('log-modal');
     const logCloseBtn = document.getElementById('log-close');
     const logClearBtn = document.getElementById('log-clear');
+
+    // Populate the Open submenu on hover
+    if (openMenuItem) {
+        openMenuItem.addEventListener('mouseenter', () => {
+            populateOpenSubmenu();
+        });
+    }
 
     if (newMenuItem) {
         newMenuItem.addEventListener('click', (e) => {
