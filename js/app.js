@@ -466,6 +466,44 @@ function setupToolbarButtons() {
             document.addEventListener('mouseup', onMouseUp);
         });
     }
+
+    // Add Card button
+    const addCardBtn = document.getElementById('add-card-btn');
+    if (addCardBtn) {
+        addCardBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+
+            if (!isProjectOpen) {
+                alert('Please open or create a project first');
+                return;
+            }
+
+            // Create card at center of current view
+            const cardId = 'card-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+            const card = new Card(
+                0, // Center x
+                0, // Center y
+                cardId,
+                'New Card',
+                '',
+                '#fff9c4', // Light yellow
+                currentUserInitials,
+                1
+            );
+
+            const viewportContent = document.querySelector('.viewport-content');
+            viewportContent.appendChild(card.render(viewportManager));
+            appState.addCard(card);
+            setupCardDragHandlers(card);
+
+            // Emit to server
+            if (socket) {
+                socket.emit('viewport:add', card.serialize());
+            }
+
+            debugLog.info('Card created via +Card button', { id: cardId });
+        });
+    }
 }
 
 // ============================================================================
