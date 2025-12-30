@@ -783,16 +783,16 @@ function setupEditModal() {
 
         // Position modal near the card if we have mouse event coordinates
         if (mouseEvent) {
-            // Position modal centered on click position
-            const modalWidth = 400;
-            const modalHeight = 300;
+            // Position modal centered on click/drop position (matches card size)
+            const modalWidth = 200;  // Match card width (150px) + small margin
+            const modalHeight = 150; // Match card height (100px) + small margin
 
             let left = mouseEvent.clientX - modalWidth / 2;
             let top = mouseEvent.clientY - modalHeight / 2;
 
             // Keep modal within viewport bounds
-            left = Math.max(10, Math.min(left, window.innerWidth - modalWidth - 10));
-            top = Math.max(10, Math.min(top, window.innerHeight - modalHeight - 10));
+            left = Math.max(5, Math.min(left, window.innerWidth - modalWidth - 5));
+            top = Math.max(5, Math.min(top, window.innerHeight - modalHeight - 5));
 
             editModal.style.display = 'block';
             editModal.style.position = 'fixed';

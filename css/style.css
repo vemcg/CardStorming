@@ -793,23 +793,23 @@ body {
 
 /* Edit Card Visual Styling */
 .edit-card-container {
-    width: 400px;
-    padding: 30px;
+    width: 200px;
+    padding: 0;
     position: relative;
     background: transparent;
 }
 
 .edit-close-btn {
     position: absolute;
-    top: 10px;
-    right: 10px;
+    top: 2px;
+    right: 2px;
     background: none;
     border: none;
-    font-size: 30px;
+    font-size: 16px;
     cursor: pointer;
     color: #f44336;
-    width: 30px;
-    height: 30px;
+    width: 20px;
+    height: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -825,15 +825,15 @@ body {
 
 .edit-delete-btn {
     position: absolute;
-    bottom: 10px;
-    left: 10px;
+    bottom: 2px;
+    left: 2px;
     background: none;
     border: none;
-    font-size: 30px;
+    font-size: 16px;
     cursor: pointer;
     color: #ff9800;
-    width: 30px;
-    height: 30px;
+    width: 20px;
+    height: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -849,15 +849,15 @@ body {
 
 .edit-save-btn {
     position: absolute;
-    bottom: 10px;
-    right: 10px;
+    bottom: 2px;
+    right: 2px;
     background: none;
     border: none;
-    font-size: 30px;
+    font-size: 16px;
     cursor: pointer;
     color: #4CAF50;
-    width: 30px;
-    height: 30px;
+    width: 20px;
+    height: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -873,14 +873,15 @@ body {
 
 .edit-card-visual {
     position: relative;
-    width: 100%;
-    min-height: 200px;
-    padding: 0 15px 15px 15px;
+    width: 150px;
+    height: 100px;
+    padding: 8px 8px 4px 8px;
     border: 1px solid #999;
     border-radius: 3px;
     box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
     display: flex;
     flex-direction: column;
+    box-sizing: border-box;
 }
 
 .edit-card-visual::before {
@@ -917,23 +918,23 @@ body {
 
 .edit-card-header {
     font-weight: bold;
-    font-size: 14px;
+    font-size: 11px;
     line-height: 20px;
+    height: 20px;
     margin-bottom: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    min-height: 20px;
 }
 
 .edit-card-body {
     font-weight: normal;
-    font-size: 12px;
+    font-size: 9px;
     line-height: 20px;
     white-space: pre-wrap;
     word-wrap: break-word;
     flex: 1;
-    min-height: 100px;
+    overflow: hidden;
 }
 
 .edit-card-header:empty::before,
