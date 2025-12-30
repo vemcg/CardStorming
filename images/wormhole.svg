@@ -1,33 +1,52 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Spiral arm 1 - starts from top right area -->
-  <path d="M 40 4
-           C 52 6, 60 16, 60 28
-           C 60 38, 54 46, 45 50
-           C 38 53, 30 51, 26 45
-           C 23 40, 24 34, 28 31"
-        fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <!-- 16 equally spaced tapered spokes -->
+  <!-- Center (32,32), outer radius 30, each spoke 22.5° apart -->
 
-  <!-- Spiral arm 2 - starts from bottom right area -->
-  <path d="M 60 40
-           C 58 52, 48 60, 36 60
-           C 26 60, 18 54, 14 45
-           C 11 38, 13 30, 19 26
-           C 24 23, 30 24, 33 28"
-        fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <!-- 0° - Right -->
+  <path d="M 62 31.5 L 34 31.85 L 34 32.15 L 62 32.5 Z" fill="currentColor"/>
 
-  <!-- Spiral arm 3 - starts from bottom left area -->
-  <path d="M 24 60
-           C 12 58, 4 48, 4 36
-           C 4 26, 10 18, 19 14
-           C 26 11, 34 13, 38 19
-           C 41 24, 40 30, 36 33"
-        fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <!-- 22.5° -->
+  <path d="M 60.213 23.787 L 33.707 31.293 L 34 31.707 L 60.607 24.393 Z" fill="currentColor"/>
 
-  <!-- Spiral arm 4 - starts from top left area -->
-  <path d="M 4 24
-           C 6 12, 16 4, 28 4
-           C 38 4, 46 10, 50 19
-           C 53 26, 51 34, 45 38
-           C 40 41, 34 40, 31 36"
-        fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <!-- 45° - Upper Right -->
+  <path d="M 53.213 13.787 L 33.414 31.586 L 33.828 32 L 54.213 14.213 Z" fill="currentColor"/>
+
+  <!-- 67.5° -->
+  <path d="M 43.787 7.787 L 31.293 30.293 L 31.707 30.707 L 44.393 8.393 Z" fill="currentColor"/>
+
+  <!-- 90° - Up -->
+  <path d="M 31.5 2 L 31.85 30 L 32.15 30 L 32.5 2 Z" fill="currentColor"/>
+
+  <!-- 112.5° -->
+  <path d="M 20.213 7.787 L 30.293 30.293 L 30.707 29.707 L 21.607 8.393 Z" fill="currentColor"/>
+
+  <!-- 135° - Upper Left -->
+  <path d="M 10.787 13.787 L 30.586 31.586 L 31 31.172 L 11.787 14.213 Z" fill="currentColor"/>
+
+  <!-- 157.5° -->
+  <path d="M 3.787 23.787 L 30.293 31.293 L 30.707 30.707 L 4.393 24.393 Z" fill="currentColor"/>
+
+  <!-- 180° - Left -->
+  <path d="M 2 31.5 L 30 31.85 L 30 32.15 L 2 32.5 Z" fill="currentColor"/>
+
+  <!-- 202.5° -->
+  <path d="M 3.787 40.213 L 30.293 32.707 L 30.707 33.293 L 4.393 39.607 Z" fill="currentColor"/>
+
+  <!-- 225° - Lower Left -->
+  <path d="M 10.787 50.213 L 30.586 32.414 L 31 32.828 L 11.787 49.787 Z" fill="currentColor"/>
+
+  <!-- 247.5° -->
+  <path d="M 20.213 56.213 L 30.293 33.707 L 30.707 34.293 L 21.607 55.607 Z" fill="currentColor"/>
+
+  <!-- 270° - Down -->
+  <path d="M 31.5 62 L 31.85 34 L 32.15 34 L 32.5 62 Z" fill="currentColor"/>
+
+  <!-- 292.5° -->
+  <path d="M 43.787 56.213 L 33.707 33.707 L 33.293 34.293 L 42.393 55.607 Z" fill="currentColor"/>
+
+  <!-- 315° - Lower Right -->
+  <path d="M 53.213 50.213 L 33.414 32.414 L 32.828 32.828 L 52.213 49.787 Z" fill="currentColor"/>
+
+  <!-- 337.5° -->
+  <path d="M 60.213 40.213 L 33.707 32.707 L 33.293 32.293 L 59.607 39.607 Z" fill="currentColor"/>
 </svg>

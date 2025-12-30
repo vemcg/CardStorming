@@ -4,7 +4,17 @@
       "Bash(git init:*)",
       "Bash(mkdir:*)",
       "Bash(npm install)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(git cherry-pick:*)",
+      "Bash(node:*)",
+      "Bash(npm start)",
+      "Bash(cat:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd user identity management, zoom controls, and improve card styling\n\nFeatures:\n- Implement per-project user identity tracking with localStorage\n- Auto-authenticate returning users to known projects\n- Add identity dropdown with previous user selections\n- Add zoom toolbar with in/out/center controls and focal point tracking\n- Create custom SVG icons for zoom and card palette\n\nUI Improvements:\n- Redesign add card button with stacked-cards icon \\(96x96, 6 cards\\)\n- Replace index card SVG backgrounds with CSS linear gradients\n- Position pink header line at 20px with blue ruled lines every 20px\n- Set text line-height to 20px to match ruling lines\n- Header text and initials now visible above pink line\n- Ruled lines extend dynamically to card bottom\n\nFixes:\n- Fix all image paths from relative to absolute URLs\n- Add /images static route to Express server\n- Fix CSS and JS paths in index.html\n- Remove top padding from cards for proper line alignment\n- Rotate zoom-in-search icon handle to lower right\n- Add .claude/settings.local.json to .gitignore\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit:*)",
+      "Bash(pkill:*)",
+      "Bash(taskkill:*)",
+      "Bash(start.bat)"
     ],
     "deny": [],
     "ask": []

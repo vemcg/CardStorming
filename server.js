@@ -146,9 +146,15 @@ function deserializeProject(data) {
     };
 }
 
-// Serve static files
+// Serve static files with correct MIME types for ES6 modules
 app.use('/css', express.static(path.join(__dirname, 'css')));
-app.use('/js', express.static(path.join(__dirname, 'js')));
+app.use('/js', express.static(path.join(__dirname, 'js'), {
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.js')) {
+            res.set('Content-Type', 'application/javascript');
+        }
+    }
+}));
 app.use('/images', express.static(path.join(__dirname, 'images')));
 app.use(express.static(path.join(__dirname, 'public')));
 

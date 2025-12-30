@@ -1,73 +1,37 @@
-// CardStorming application
-console.log('CardStorming initialized');
+// CardStorming application - Refactored with ES6 modules
+console.log('CardStorming initialized (ES6 modules)');
 
-// Debug logging system
-const debugLog = {
-    entries: [],
-    maxEntries: 500,
-    muted: false,
+// Import all modules
+import { debugLog } from './utils/DebugLog.js';
+import { CoordinateSystem } from './core/CoordinateSystem.js';
+import { ViewportManager } from './core/ViewportManager.js';
+import { AppState } from './core/AppState.js';
+import { Card } from './elements/Card.js';
+import { Wormhole } from './elements/Wormhole.js';
+import { ZoomSearchTool } from './elements/ZoomSearchTool.js';
 
-    log(level, message, data = null) {
-        if (this.muted) return;
+// ============================================================================
+// GLOBAL STATE
+// ============================================================================
 
-        const timestamp = new Date().toISOString();
-        const entry = { timestamp, level, message, data };
-        this.entries.push(entry);
+const appState = new AppState();
+let viewportManager = null;
+let socket = null;
+let currentProjectId = null;
+let isProjectOpen = false;
+let currentUserInitials = '';
 
-        // Keep only last maxEntries
-        if (this.entries.length > this.maxEntries) {
-            this.entries.shift();
-        }
+// Export to window for debugging
+window.appState = appState;
+window.debugLog = debugLog;
+window.viewportManager = null; // Will be set after init
 
-        // Also log to console
-        const consoleMsg = `[${level.toUpperCase()}] ${message}`;
-        if (data) {
-            console.log(consoleMsg, data);
-        } else {
-            console.log(consoleMsg);
-        }
+// ============================================================================
+// PROJECT MANAGEMENT UTILITIES
+// ============================================================================
 
-        // Update log display if visible
-        this.updateDisplay();
-    },
-
-    info(message, data) { this.log('info', message, data); },
-    warn(message, data) { this.log('warn', message, data); },
-    error(message, data) { this.log('error', message, data); },
-
-    clear() {
-        this.entries = [];
-        this.updateDisplay();
-    },
-
-    toggleMute() {
-        this.muted = !this.muted;
-        return this.muted;
-    },
-
-    updateDisplay() {
-        const logContent = document.getElementById('log-content');
-        if (!logContent) return;
-
-        const logModal = document.getElementById('log-modal');
-        if (logModal.style.display !== 'block') return;
-
-        logContent.innerHTML = this.entries.map(entry => {
-            const dataStr = entry.data ? '\n' + JSON.stringify(entry.data, null, 2) : '';
-            return `<div class="log-entry">
-                <span class="log-timestamp">${entry.timestamp}</span>
-                <span class="log-level-${entry.level}"> [${entry.level.toUpperCase()}]</span> ${entry.message}${dataStr}
-            </div>`;
-        }).join('');
-
-        // Auto-scroll to bottom
-        logContent.scrollTop = logContent.scrollHeight;
-    }
-};
-
-// Project management
-const adjectives = ['Galloping', 'Remorseful', 'Bouncing', 'Thoughtful', 'Dancing', 'Mighty', 'Gentle', 'Swift', 'Brave', 'Clever', 'Happy', 'Curious', 'Playful', 'Wise', 'Bold'];
-const nouns = ['Giraffe', 'Rhinoceros', 'Elephant', 'Penguin', 'Dolphin', 'Tiger', 'Panda', 'Eagle', 'Otter', 'Fox', 'Koala', 'Falcon', 'Walrus', 'Leopard', 'Turtle'];
+const adjectives = ['Galloping', 'Remorseful', 'Bouncing', 'Thoughtful', 'Dancing', 'Mighty', 'Gentle', 'Swift', 'Brave', 'Clever'];
+const nouns = ['Giraffe', 'Rhinoceros', 'Elephant', 'Penguin', 'Dolphin', 'Tiger', 'Panda', 'Eagle', 'Otter', 'Fox'];
 
 function generateProjectName() {
     const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
@@ -80,1123 +44,724 @@ function generateProjectId() {
 }
 
 function getProjectIdFromURL() {
-    const hash = window.location.hash.substring(1);
-    return hash || null;
+    return window.location.hash.substring(1) || null;
 }
 
 function setProjectIdInURL(projectId) {
     window.location.hash = projectId;
 }
 
-// Generate unique IDs for cards
 function generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
-// Zoom controls with focal point tracking
-let currentZoom = 1.0;
-const ZOOM_STEP = 0.05;  // Very slow, smooth zoom (5%)
-const MIN_ZOOM = 0.1;  // Very zoomed out - see lots of workspace
-const MAX_ZOOM = 3.0;   // 3x for accessibility
-let focalPoint = { x: 0.5, y: 0.5 }; // Normalized coordinates (0-1), default center
-
-// Grid snapping
-const GRID_SIZE = 25; // pixels
-
-// Snap coordinate to grid
-function snapToGrid(value) {
-    return Math.round(value / GRID_SIZE) * GRID_SIZE;
-}
-
-// Convert screen coordinates to workspace accounting for pan and zoom
-// This calculates the TRUE workspace position based on visual location
-// Used when dragging/dropping cards to ensure accurate positioning
-function screenToWorkspaceNoPan(screenX, screenY) {
-    const viewport = document.querySelector('.viewport');
-    const viewportContent = document.querySelector('.viewport-content');
-    const rect = viewport.getBoundingClientRect();
-    const viewportStyle = window.getComputedStyle(viewport);
-    const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-    const paddingTop = parseFloat(viewportStyle.paddingTop);
-
-    // Get current pan offset from viewport-content transform
-    let panX = 0, panY = 0;
-    if (viewportContent) {
-        const currentTransform = viewportContent.style.transform;
-        if (currentTransform && currentTransform.includes('translate')) {
-            const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
-            if (match) {
-                panX = parseFloat(match[1]);
-                panY = parseFloat(match[2]);
-            }
-        }
-    }
-
-    // Viewport center (accounting for padding)
-    const viewportWidth = rect.width - paddingLeft * 2;
-    const viewportHeight = rect.height - paddingTop * 2;
-    const centerX = viewportWidth / 2;
-    const centerY = viewportHeight / 2;
-
-    // Position relative to viewport content area (after padding)
-    const contentX = screenX - rect.left - paddingLeft;
-    const contentY = screenY - rect.top - paddingTop;
-
-    // Position relative to center
-    const relativeX = contentX - centerX;
-    const relativeY = contentY - centerY;
-
-    // Account for pan and zoom to get workspace coordinates
-    // workspace = (screen_relative_to_center - pan) / zoom
-    const workspaceX = (relativeX - panX) / currentZoom;
-    const workspaceY = (relativeY - panY) / currentZoom;
-
-    debugLog.info('screenToWorkspaceNoPan', {
-        screenX,
-        screenY,
-        viewportRect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-        viewportCenter: { x: centerX, y: centerY },
-        padding: { left: paddingLeft, top: paddingTop },
-        pan: { x: panX, y: panY },
-        currentZoom,
-        contentPos: { x: contentX, y: contentY },
-        relativeToCenter: { x: relativeX, y: relativeY },
-        result: { x: workspaceX, y: workspaceY }
-    });
-
-    return { x: workspaceX, y: workspaceY };
-}
-
-function setZoom(zoomLevel) {
-    const viewport = document.querySelector('.viewport');
-    const viewportContent = document.querySelector('.viewport-content');
-    if (!viewport || !viewportContent) return;
-
-    const oldZoom = currentZoom;
-    currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel));
-
-    // Get current pan offset
-    let panX = 0, panY = 0;
-    const currentTransform = viewportContent.style.transform;
-    if (currentTransform && currentTransform.includes('translate')) {
-        const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
-        if (match) {
-            panX = parseFloat(match[1]);
-            panY = parseFloat(match[2]);
-        }
-    }
-
-    // Adjust pan to maintain focal point during zoom
-    if (focalPoint && currentZoom !== oldZoom) {
-        const rect = viewport.getBoundingClientRect();
-        const viewportStyle = window.getComputedStyle(viewport);
-        const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-        const paddingTop = parseFloat(viewportStyle.paddingTop);
-
-        // Convert focal point (0-1 range) to viewport pixels
-        const focalScreenX = focalPoint.x * rect.width;
-        const focalScreenY = focalPoint.y * rect.height;
-
-        // Viewport center (accounting for padding)
-        const viewportWidth = rect.width - paddingLeft * 2;
-        const viewportHeight = rect.height - paddingTop * 2;
-        const centerX = viewportWidth / 2;
-        const centerY = viewportHeight / 2;
-
-        // Find workspace point (center-origin) at focal screen position with OLD zoom
-        // workspace = (screen - padding - center - panX) / oldZoom
-        const workspaceX = (focalScreenX - paddingLeft - centerX - panX) / oldZoom;
-        const workspaceY = (focalScreenY - paddingTop - centerY - panY) / oldZoom;
-
-        // Calculate what pan is needed to keep this workspace point at same screen position with NEW zoom
-        // screen = workspace * newZoom + center + newPanX + padding
-        // newPanX = screen - padding - center - workspace * newZoom
-        panX = focalScreenX - paddingLeft - centerX - workspaceX * currentZoom;
-        panY = focalScreenY - paddingTop - centerY - workspaceY * currentZoom;
-    }
-
-    viewportContent.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
-
-    debugLog.info('setZoom', {
-        oldZoom,
-        newZoom: currentZoom,
-        focalPoint: { ...focalPoint },
-        pan: { x: panX, y: panY }
-    });
-}
-
-function zoomIn() {
-    setZoom(currentZoom + ZOOM_STEP);
-}
-
-function zoomOut() {
-    setZoom(currentZoom - ZOOM_STEP);
-}
-
-function centerView() {
-    const viewportContent = document.querySelector('.viewport-content');
-    if (!viewportContent) return;
-
-    // Reset focal point to center of workspace
-    focalPoint = { x: 0.5, y: 0.5 };
-
-    // Reset zoom to 100%
-    setZoom(1.0);
-}
-
-function setFocalPointFromEvent(event, card = null) {
-    const viewport = document.querySelector('.viewport');
-    const viewportContent = document.querySelector('.viewport-content');
-    if (!viewport || !viewportContent) return;
-
-    const rect = viewport.getBoundingClientRect();
-    const contentRect = viewportContent.getBoundingClientRect();
-
-    let clientX, clientY;
-
-    // If a card is provided, use its center
-    if (card) {
-        const cardRect = card.getBoundingClientRect();
-        clientX = cardRect.left + cardRect.width / 2;
-        clientY = cardRect.top + cardRect.height / 2;
-    } else {
-        // Otherwise use the event position
-        clientX = event.clientX;
-        clientY = event.clientY;
-    }
-
-    // Calculate position relative to the SCALED viewport-content
-    const contentX = clientX - contentRect.left;
-    const contentY = clientY - contentRect.top;
-
-    // Normalize to 0-1 within the scaled content area
-    focalPoint.x = contentX / contentRect.width;
-    focalPoint.y = contentY / contentRect.height;
-
-    // Clamp to valid range
-    focalPoint.x = Math.max(0, Math.min(1, focalPoint.x));
-    focalPoint.y = Math.max(0, Math.min(1, focalPoint.y));
-
-    debugLog.info('setFocalPointFromEvent', {
-        viewportSize: { width: rect.width, height: rect.height },
-        contentSize: { width: contentRect.width, height: contentRect.height },
-        screenPos: { x: clientX, y: clientY },
-        contentPos: { x: contentX, y: contentY },
-        focalPoint: { ...focalPoint }
-    });
-}
-
-// Calculate luminance and determine text color for readability
-function getTextColorForBackground(bgColor) {
-    // Convert hex to RGB
-    let r, g, b;
-
-    if (bgColor.startsWith('#')) {
-        const hex = bgColor.substring(1);
-        r = parseInt(hex.substr(0, 2), 16);
-        g = parseInt(hex.substr(2, 2), 16);
-        b = parseInt(hex.substr(4, 2), 16);
-    } else if (bgColor.startsWith('rgb')) {
-        const match = bgColor.match(/\d+/g);
-        r = parseInt(match[0]);
-        g = parseInt(match[1]);
-        b = parseInt(match[2]);
-    } else {
-        return '#000000'; // Default to black
-    }
-
-    // Calculate relative luminance using standard formula
-    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-
-    // Return white text for dark backgrounds, black for light
-    return luminance > 0.5 ? '#000000' : '#ffffff';
-}
-
-// Project state management
-let currentProjectId = getProjectIdFromURL();
-let isProjectOpen = false;
-let socket = null;
-
-// User state management
-let currentUserInitials = null;
-let currentUserName = null;
-let isUserAuthenticated = false;
-
-// Project tracking in localStorage
-function saveKnownProject(projectId, projectName) {
-    const knownProjects = JSON.parse(localStorage.getItem('knownProjects') || '{}');
-    knownProjects[projectId] = {
-        name: projectName,
-        lastAccessed: new Date().toISOString()
-    };
-    localStorage.setItem('knownProjects', JSON.stringify(knownProjects));
-}
+// ============================================================================
+// LOCAL STORAGE HELPERS
+// ============================================================================
 
 function getKnownProjects() {
-    return JSON.parse(localStorage.getItem('knownProjects') || '{}');
+    const stored = localStorage.getItem('knownProjects');
+    return stored ? JSON.parse(stored) : {};
 }
 
-// User tracking in localStorage (per project)
-function saveProjectUser(projectId, initials, name) {
-    const projectUsers = JSON.parse(localStorage.getItem('projectUsers') || '{}');
-    if (!projectUsers[projectId]) {
-        projectUsers[projectId] = [];
+function saveKnownProject(projectId, projectName) {
+    const known = getKnownProjects();
+    known[projectId] = projectName;
+    localStorage.setItem('knownProjects', JSON.stringify(known));
+}
+
+function removeKnownProject(projectId) {
+    const known = getKnownProjects();
+    delete known[projectId];
+    localStorage.setItem('knownProjects', JSON.stringify(known));
+}
+
+function getUserIdentity(projectId) {
+    const key = `project_${projectId}_user`;
+    const stored = localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : null;
+}
+
+function saveUserIdentity(projectId, initials, name) {
+    const key = `project_${projectId}_user`;
+    localStorage.setItem(key, JSON.stringify({ initials, name }));
+}
+
+// ============================================================================
+// DATA MIGRATION
+// ============================================================================
+
+/**
+ * Migrate old project format to new format
+ * Old: { viewportCards: [{left, top, ...}] }
+ * New: { cards: [{x, y, ...}] }
+ */
+function migrateProjectData(serverState) {
+    if (serverState.viewportCards && !serverState.cards) {
+        debugLog.info('Migrating old project format to new format');
+        serverState.cards = serverState.viewportCards.map(oldCard => ({
+            id: oldCard.id,
+            header: oldCard.header,
+            body: oldCard.body,
+            color: oldCard.color,
+            x: oldCard.left,
+            y: oldCard.top,
+            zIndex: oldCard.zIndex,
+            authorInitials: oldCard.authorInitials
+        }));
+        delete serverState.viewportCards;
+        debugLog.info('Migration complete', { cardCount: serverState.cards.length });
     }
 
-    // Remove existing entry for these initials
-    projectUsers[projectId] = projectUsers[projectId].filter(u => u.initials !== initials);
+    serverState.cards = serverState.cards || [];
+    serverState.wormholes = serverState.wormholes || [];
+    serverState.paletteCards = serverState.paletteCards || [];
 
-    // Add to front (most recent)
-    projectUsers[projectId].unshift({ initials, name });
-
-    // Keep only last 10 users per project
-    projectUsers[projectId] = projectUsers[projectId].slice(0, 10);
-
-    localStorage.setItem('projectUsers', JSON.stringify(projectUsers));
+    return serverState;
 }
 
-function getProjectUsers(projectId) {
-    const projectUsers = JSON.parse(localStorage.getItem('projectUsers') || '{}');
-    return projectUsers[projectId] || [];
-}
+// ============================================================================
+// PROJECT OPEN/CLOSE
+// ============================================================================
 
-// Save current session user (per tab)
-function saveSessionUser(initials, name) {
-    sessionStorage.setItem('currentUser', JSON.stringify({ initials, name }));
-}
-
-function getSessionUser() {
-    const user = sessionStorage.getItem('currentUser');
-    return user ? JSON.parse(user) : null;
-}
-
-// Function to disable/enable UI controls
-function setControlsEnabled(enabled) {
-    // Get or create the workspace overlay
-    let overlay = document.getElementById('workspace-overlay');
-
-    if (!enabled) {
-        // Create overlay if it doesn't exist
-        if (!overlay) {
-            // Calculate the top position: heading height + menu bar height
-            const heading = document.querySelector('.heading');
-            const menuBar = document.querySelector('.menu-bar');
-            const topOffset = (heading?.offsetHeight || 0) + (menuBar?.offsetHeight || 0);
-
-            overlay = document.createElement('div');
-            overlay.id = 'workspace-overlay';
-            overlay.style.cssText = `
-                position: fixed;
-                top: ${topOffset}px;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background-color: rgba(0, 0, 0, 0.3);
-                backdrop-filter: blur(2px);
-                z-index: 9998;
-                pointer-events: auto;
-            `;
-
-            // Create user identity panel on the overlay
-            const identityPanel = document.createElement('div');
-            identityPanel.className = 'user-identity-panel';
-            identityPanel.innerHTML = `
-                <div class="user-identity-content">
-                    <h2>Who are you?</h2>
-                    <form autocomplete="off">
-                        <div class="user-input-row">
-                            <div class="user-field-wrapper">
-                                <input type="text" id="user-initials" class="user-initials-input" name="user-initials-${Date.now()}" maxlength="4" placeholder="initials" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-form-type="other">
-                                <div id="initials-dropdown" class="initials-dropdown"></div>
-                            </div>
-                            <input type="text" id="user-name" class="user-name-input" name="user-name-${Date.now()}" placeholder="name" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-form-type="other">
-                        </div>
-                    </form>
-                </div>
-            `;
-
-            overlay.appendChild(identityPanel);
-            document.body.appendChild(overlay);
-
-            // Set up listeners right after creating the overlay
-            setupUserIdentityListeners();
-        }
-    } else {
-        // Remove overlay if it exists
-        if (overlay) {
-            overlay.remove();
-        }
-    }
-}
-
-// Function to open a project
 function openProject(projectId) {
+    debugLog.info('Opening project', { projectId });
+
     currentProjectId = projectId;
-    setProjectIdInURL(projectId);
     isProjectOpen = true;
+    setProjectIdInURL(projectId);
+    appState.projectId = projectId;
+    appState.clearAll();
 
-    // Reset authentication state for new project
-    isUserAuthenticated = false;
-    currentUserInitials = null;
-    currentUserName = null;
-
-    // Initialize Socket.IO connection with project ID
-    if (socket) {
-        socket.disconnect();
-    }
-    socket = io({
-        query: { projectId: currentProjectId }
-    });
-
-    // Set up socket event listeners
-    setupSocketListeners();
-
-    // Check if we have a known identity for this project
-    const projectUsers = getProjectUsers(projectId);
-    const sessionUser = getSessionUser();
-
-    if (projectUsers.length > 0) {
-        // We've used this project before - auto-authenticate silently
-        const mostRecentUser = projectUsers[0];
-        currentUserInitials = mostRecentUser.initials;
-        currentUserName = mostRecentUser.name;
-
-        // Authenticate with server
-        socket.emit('user:register', {
-            projectId: currentProjectId,
-            initials: mostRecentUser.initials,
-            name: mostRecentUser.name
-        }, (response) => {
-            if (response.success) {
-                isUserAuthenticated = true;
-                saveSessionUser(mostRecentUser.initials, mostRecentUser.name);
-
-                // Update welcome text
-                const welcomeText = document.getElementById('welcome-text');
-                if (welcomeText) {
-                    welcomeText.textContent = `Welcome to your collaborative workspace, ${mostRecentUser.name} [${mostRecentUser.initials}]`;
-                }
-
-                // Enable controls without showing dialog
-                setControlsEnabled(true);
-            } else {
-                // Authentication failed - show dialog
-                setControlsEnabled(false);
-            }
+    const userIdentity = getUserIdentity(projectId);
+    if (userIdentity) {
+        currentUserInitials = userIdentity.initials;
+        socket.emit('register', {
+            initials: userIdentity.initials,
+            name: userIdentity.name,
+            projectId: projectId
         });
-    } else if (sessionUser) {
-        // New project but we have session defaults - show dialog with defaults
-        setControlsEnabled(false);
     } else {
-        // Completely new user - show dialog
-        setControlsEnabled(false);
+        showIdentityModal(projectId);
     }
 
-    // Update the Open submenu (project will be added to known projects when state:init fires)
-    setTimeout(function() {
-        populateOpenSubmenu();
-    }, 100);
+    const shareBtn = document.getElementById('share-btn');
+    if (shareBtn) shareBtn.style.display = 'inline-block';
+
+    debugLog.info('Project opened', { projectId });
 }
 
-// Function to close current project
 function closeProject() {
+    debugLog.info('Closing project');
+
     isProjectOpen = false;
     currentProjectId = null;
-
-    // Clear URL hash
     window.location.hash = '';
+    appState.clearAll();
+    appState.projectId = null;
 
-    // Disconnect socket
-    if (socket) {
-        socket.disconnect();
-        socket = null;
-    }
+    const shareBtn = document.getElementById('share-btn');
+    if (shareBtn) shareBtn.style.display = 'none';
 
-    // Clear viewport and palette
-    const viewportContent = document.querySelector('.viewport-content');
-    const cardList = document.getElementById('card-list');
-    if (viewportContent) {
-        viewportContent.querySelectorAll('.viewport-card').forEach(card => card.remove());
-    }
-    if (cardList) {
-        cardList.innerHTML = '';
-    }
-
-    // Clear project name
     const projectNameEl = document.getElementById('project-name');
-    if (projectNameEl) {
-        projectNameEl.value = 'No Project Open';
-    }
+    if (projectNameEl) projectNameEl.value = '';
 
-    // Reset welcome text
-    const welcomeText = document.getElementById('welcome-text');
-    if (welcomeText) {
-        welcomeText.textContent = 'Welcome to your collaborative workspace';
-    }
-
-    // Clear authentication state
-    isUserAuthenticated = false;
-    currentUserInitials = null;
-    currentUserName = null;
-
-    // Disable controls (this will remove the overlay and user identity fields)
-    setControlsEnabled(false);
+    debugLog.info('Project closed');
 }
 
-// Setup socket event listeners
-function setupSocketListeners() {
+function showIdentityModal(projectId) {
+    const modal = document.getElementById('identity-modal');
+    const initialsInput = document.getElementById('identity-initials');
+    const nameInput = document.getElementById('identity-name');
+    const joinBtn = document.getElementById('identity-join');
+
+    modal.style.display = 'block';
+    initialsInput.value = '';
+    nameInput.value = '';
+    initialsInput.focus();
+
+    joinBtn.onclick = function() {
+        const initials = initialsInput.value.trim().toUpperCase();
+        const name = nameInput.value.trim();
+
+        if (initials && name) {
+            currentUserInitials = initials;
+            saveUserIdentity(projectId, initials, name);
+            socket.emit('register', { initials, name, projectId });
+            modal.style.display = 'none';
+        }
+    };
+}
+
+// ============================================================================
+// MENU HANDLERS
+// ============================================================================
+
+function setupMenuHandlers() {
     const projectNameEl = document.getElementById('project-name');
-    const cardList = document.getElementById('card-list');
-    const viewport = document.querySelector('.viewport');
-    const viewportContent = document.querySelector('.viewport-content');
+    const newMenuItem = document.getElementById('menu-new');
+    const closeMenuItem = document.getElementById('menu-close');
+    const deleteProjectMenuItem = document.getElementById('menu-delete-project');
+    const showLogMenuItem = document.getElementById('menu-show-log');
+    const logModal = document.getElementById('log-modal');
+    const logCloseBtn = document.getElementById('log-close');
+    const logClearBtn = document.getElementById('log-clear');
 
-    // Convert workspace coordinates (center-origin) to CSS positioning (top-left origin)
-    // This is used when creating/positioning cards with CSS left/top
-    function workspaceToCSS(workspaceX, workspaceY) {
-        const viewport = document.querySelector('.viewport');
-        const rect = viewport.getBoundingClientRect();
-        const viewportStyle = window.getComputedStyle(viewport);
-        const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-        const paddingTop = parseFloat(viewportStyle.paddingTop);
+    if (newMenuItem) {
+        newMenuItem.addEventListener('click', (e) => {
+            e.preventDefault();
+            openProject(generateProjectId());
+        });
+    }
 
-        // Viewport center (accounting for padding)
-        const viewportWidth = rect.width - paddingLeft * 2;
-        const viewportHeight = rect.height - paddingTop * 2;
-        const centerX = viewportWidth / 2;
-        const centerY = viewportHeight / 2;
+    if (closeMenuItem) {
+        closeMenuItem.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (isProjectOpen && confirm('Close the current project?')) {
+                closeProject();
+            }
+        });
+    }
 
-        // CSS position = workspace position + center offset
-        const cssX = workspaceX + centerX;
-        const cssY = workspaceY + centerY;
+    if (deleteProjectMenuItem) {
+        deleteProjectMenuItem.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (confirm('Delete this entire project? This cannot be undone.')) {
+                socket.emit('project:delete', { projectId: currentProjectId });
+                setTimeout(() => closeProject(), 100);
+            }
+        });
+    }
 
-        debugLog.info('workspaceToCSS', {
-            workspace: { x: workspaceX, y: workspaceY },
-            viewportSize: { width: rect.width, height: rect.height },
-            padding: { left: paddingLeft, top: paddingTop },
-            center: { x: centerX, y: centerY },
-            css: { x: cssX, y: cssY }
+    if (projectNameEl) {
+        projectNameEl.addEventListener('change', () => {
+            const newName = projectNameEl.value.trim();
+            if (newName && socket) {
+                socket.emit('project:rename', { projectId: currentProjectId, name: newName });
+                appState.projectName = newName;
+            }
         });
 
-        return { x: cssX, y: cssY };
+        projectNameEl.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                projectNameEl.blur();
+            }
+        });
     }
 
-    // Function to update card content
-    function updateCardContent(card, header, body) {
-        const headerDiv = document.createElement('div');
-        headerDiv.className = 'card-header';
-        headerDiv.textContent = header;
+    if (showLogMenuItem) {
+        showLogMenuItem.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (logModal) {
+                logModal.style.display = 'block';
+                debugLog.updateDisplay();
+            }
+        });
+    }
 
-        const bodyDiv = document.createElement('div');
-        bodyDiv.className = 'card-body';
-        bodyDiv.textContent = body;
+    if (logCloseBtn) {
+        logCloseBtn.addEventListener('click', () => {
+            if (logModal) logModal.style.display = 'none';
+        });
+    }
 
-        card.innerHTML = '';
-        card.appendChild(headerDiv);
-        if (body) {
-            card.appendChild(bodyDiv);
+    if (logClearBtn) {
+        logClearBtn.addEventListener('click', () => {
+            debugLog.clear();
+        });
+    }
+}
+
+// ============================================================================
+// ZOOM CONTROLS
+// ============================================================================
+
+function setupZoomControls() {
+    const zoomOutBtn = document.getElementById('zoom-out-btn');
+    const zoomInBtn = document.getElementById('zoom-in-btn');
+    const centerBtn = document.getElementById('center-btn');
+
+    if (zoomOutBtn) {
+        zoomOutBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            viewportManager.zoomOut();
+        });
+    }
+
+    if (zoomInBtn) {
+        zoomInBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            viewportManager.zoomIn();
+        });
+    }
+
+    if (centerBtn) {
+        centerBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            viewportManager.centerView();
+        });
+    }
+}
+
+// ============================================================================
+// TOOLBAR BUTTONS (ZOOM-SEARCH, WORMHOLE)
+// ============================================================================
+
+function setupToolbarButtons() {
+    const zoomSearchBtn = document.getElementById('zoom-search-btn');
+    const wormholeBtn = document.getElementById('wormhole-btn');
+
+    // Zoom-search tool
+    if (zoomSearchBtn) {
+        zoomSearchBtn.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+
+            const tool = new ZoomSearchTool(0, 0);
+            appState.currentDrag = tool;
+            tool.startDrag(e, viewportManager);
+
+            const onMouseMove = (moveEvent) => {
+                tool.drag(moveEvent, viewportManager, appState);
+            };
+
+            const onMouseUp = (upEvent) => {
+                tool.endDrag(upEvent, viewportManager, appState);
+                appState.currentDrag = null;
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+
+            debugLog.info('Zoom-search tool activated');
+        });
+    }
+
+    // Wormhole button
+    if (wormholeBtn) {
+        wormholeBtn.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+
+            const viewportContent = document.querySelector('.viewport-content');
+
+            // Create ghost element
+            const ghost = document.createElement('div');
+            ghost.style.position = 'fixed';
+            ghost.style.pointerEvents = 'none';
+            ghost.style.zIndex = '10000';
+            ghost.style.width = '120px';
+            ghost.style.height = '120px';
+            ghost.style.opacity = '0.7';
+            ghost.style.borderRadius = '50%';
+            ghost.style.backgroundColor = 'rgba(255,255,255,0.9)';
+            ghost.style.border = '3px solid #666';
+            ghost.style.display = 'flex';
+            ghost.style.alignItems = 'center';
+            ghost.style.justifyContent = 'center';
+            ghost.innerHTML = wormholeBtn.innerHTML;
+            const svg = ghost.querySelector('svg');
+            if (svg) {
+                svg.style.width = '96px';
+                svg.style.height = '96px';
+            }
+            ghost.style.left = (e.clientX - 60) + 'px';
+            ghost.style.top = (e.clientY - 60) + 'px';
+            document.body.appendChild(ghost);
+
+            let dragStartTime = Date.now();
+            let zoomAnimationFrame = null;
+
+            // Start auto-zoom animation
+            const zoomLoop = () => {
+                const now = Date.now();
+                if (now - dragStartTime >= 1500) {
+                    viewportManager.zoomOutGradual();
+                }
+                zoomAnimationFrame = requestAnimationFrame(zoomLoop);
+            };
+            zoomAnimationFrame = requestAnimationFrame(zoomLoop);
+
+            const onMouseMove = (moveEvent) => {
+                ghost.style.left = (moveEvent.clientX - 60) + 'px';
+                ghost.style.top = (moveEvent.clientY - 60) + 'px';
+                viewportManager.autoPan(moveEvent);
+            };
+
+            const onMouseUp = (upEvent) => {
+                cancelAnimationFrame(zoomAnimationFrame);
+                ghost.remove();
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+
+                // Check if dropped on viewport
+                if (viewportManager.isInViewport(upEvent.clientX, upEvent.clientY)) {
+                    const dropPos = CoordinateSystem.screenToWorkspaceNoPan(
+                        upEvent.clientX,
+                        upEvent.clientY,
+                        viewportManager.viewport,
+                        viewportManager.currentZoom
+                    );
+
+                    // Zoom back to 1.0
+                    viewportManager.zoomTo(1.0, dropPos.x, dropPos.y);
+
+                    // Create wormhole pair
+                    const wormhole1Id = 'wormhole-' + Date.now() + '-1';
+                    const wormhole2Id = 'wormhole-' + Date.now() + '-2';
+
+                    const wormhole1 = new Wormhole(dropPos.x, dropPos.y, wormhole1Id, wormhole2Id);
+                    const wormhole2 = new Wormhole(dropPos.x + 5, dropPos.y + 5, wormhole2Id, wormhole1Id);
+
+                    // Render both
+                    viewportContent.appendChild(wormhole1.render(viewportManager));
+                    viewportContent.appendChild(wormhole2.render(viewportManager));
+
+                    // Add to state
+                    appState.addWormhole(wormhole1);
+                    appState.addWormhole(wormhole2);
+
+                    // Setup drag handlers
+                    setupWormholeDragHandlers(wormhole1);
+                    setupWormholeDragHandlers(wormhole2);
+
+                    // Emit to server
+                    socket.emit('wormhole:add', wormhole1.serialize());
+                    socket.emit('wormhole:add', wormhole2.serialize());
+
+                    debugLog.info('Wormhole pair created', { wormhole1Id, wormhole2Id });
+                }
+            };
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+    }
+}
+
+// ============================================================================
+// VIEWPORT DRAG (PANNING)
+// ============================================================================
+
+function setupViewportDrag() {
+    const viewport = viewportManager.viewport;
+    const viewportContent = viewportManager.viewportContent;
+    let isPanning = false;
+    let panStartX, panStartY, panOffsetX, panOffsetY;
+
+    viewport.addEventListener('mousedown', (e) => {
+        // Don't pan if clicking on a wormhole or card
+        if (e.target.closest('.wormhole-portal') || e.target.closest('.viewport-card')) {
+            return;
         }
 
-        card.dataset.header = header;
-        card.dataset.body = body;
-    }
+        if (e.target === viewport || e.target === viewportContent) {
+            isPanning = true;
+            panStartX = e.clientX;
+            panStartY = e.clientY;
+            panOffsetX = viewportManager.currentPan.x;
+            panOffsetY = viewportManager.currentPan.y;
+            viewport.style.cursor = 'grabbing';
+        }
+    });
 
-    // Drag handlers
-    function handleDragStart(e) {
-        // Create custom drag ghost with gradient
-        const ghost = e.target.cloneNode(true);
-        ghost.classList.add('drag-ghost');
-        ghost.style.width = e.target.offsetWidth + 'px';
-        ghost.style.height = e.target.offsetHeight + 'px';
-        document.body.appendChild(ghost);
+    document.addEventListener('mousemove', (e) => {
+        if (!isPanning) return;
 
-        // Set the custom drag image
-        e.dataTransfer.setDragImage(ghost, 0, 0);
+        const dx = e.clientX - panStartX;
+        const dy = e.clientY - panStartY;
 
-        // Clean up the ghost after a brief moment
-        setTimeout(() => {
-            if (ghost.parentNode) {
-                ghost.parentNode.removeChild(ghost);
-            }
-        }, 0);
+        viewportManager.currentPan.x = panOffsetX + dx;
+        viewportManager.currentPan.y = panOffsetY + dy;
+        viewportManager.applyTransform();
+    });
 
-        e.target.classList.add('dragging');
-        e.dataTransfer.effectAllowed = 'copy';
-        e.dataTransfer.setData('text/plain', JSON.stringify({
-            type: e.target.dataset.cardType,
-            color: e.target.dataset.cardColor
-        }));
-    }
+    document.addEventListener('mouseup', () => {
+        if (isPanning) {
+            isPanning = false;
+            viewport.style.cursor = '';
+        }
+    });
+}
 
-    function handleDragEnd(e) {
-        e.target.classList.remove('dragging');
-    }
+// ============================================================================
+// EDIT MODAL
+// ============================================================================
 
-    function handleCardDoubleClick(e) {
-        e.preventDefault();
+function setupEditModal() {
+    const editModal = document.getElementById('edit-modal');
+    const editCardHeader = document.getElementById('edit-card-header');
+    const editCardBody = document.getElementById('edit-card-body');
+    const editSave = document.getElementById('edit-save');
+    const editCancel = document.getElementById('edit-cancel');
 
-        const card = e.currentTarget;
+    // Listen for custom card:edit event
+    document.addEventListener('card:edit', (e) => {
+        const card = e.detail.card;
 
-        // Update focal point to center of card for future zooming
-        setFocalPointFromEvent(e, card);
-
-        const editModal = document.getElementById('edit-modal');
-        const editCardVisual = document.getElementById('edit-card-visual');
-        const editCardHeader = document.getElementById('edit-card-header');
-        const editCardBody = document.getElementById('edit-card-body');
-
-        editCardHeader.textContent = card.dataset.header || '';
-
-        // Convert newlines to HTML for contenteditable
-        const bodyText = card.dataset.body || '';
-        editCardBody.innerHTML = bodyText
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .split('\n')
-            .map((line, index) => index === 0 ? line : '<div>' + line + '</div>')
-            .join('');
-
-        editCardVisual.style.backgroundColor = card.style.backgroundColor;
-        editCardVisual.style.color = getTextColorForBackground(card.style.backgroundColor);
-        editModal.dataset.editingCardId = card.dataset.id;
+        editCardHeader.textContent = card.header;
+        editCardBody.textContent = card.body;
+        editModal.dataset.editingCardId = card.id;
         editModal.style.display = 'block';
         editCardHeader.focus();
-    }
+    });
 
-    // Create a palette card
-    function createPaletteCard(type, color) {
-        const cardStack = document.createElement('div');
-        cardStack.className = 'card-stack';
-        cardStack.style.backgroundColor = color;
+    if (editSave) {
+        editSave.addEventListener('click', () => {
+            const cardId = editModal.dataset.editingCardId;
+            const card = appState.getCard(cardId);
 
-        const card = document.createElement('div');
-        card.className = 'palette-card';
-        card.style.backgroundColor = color;
-        card.style.color = getTextColorForBackground(color);
-        card.textContent = type;
-        card.draggable = true;
-        card.dataset.cardType = type;
-        card.dataset.cardColor = color;
+            if (card) {
+                const newHeader = editCardHeader.textContent.trim();
+                const newBody = editCardBody.textContent.trim();
 
-        card.addEventListener('dragstart', handleDragStart);
-        card.addEventListener('dragend', handleDragEnd);
+                card.updateContent(newHeader, newBody);
 
-        cardStack.appendChild(card);
-        cardList.appendChild(cardStack);
-    }
+                socket.emit('card:update', {
+                    id: cardId,
+                    header: newHeader,
+                    body: newBody
+                });
 
-    // Create a viewport card
-    function createViewportCard(id, header, body, color, left, top, zIndex, authorInitials) {
-        debugLog.info('createViewportCard called', {
-            id,
-            header,
-            body,
-            color,
-            left,
-            top,
-            zIndex,
-            authorInitials
-        });
-
-        const card = document.createElement('div');
-        card.className = 'viewport-card';
-        card.dataset.id = id;
-        card.style.backgroundColor = color;
-        card.style.color = getTextColorForBackground(color);
-
-        // left/top from server are in workspace coordinates (center-origin)
-        // Convert to CSS coordinates (top-left origin) for positioning
-        const workspaceX = parseFloat(left);
-        const workspaceY = parseFloat(top);
-        const cssPos = workspaceToCSS(workspaceX, workspaceY);
-
-        card.style.left = cssPos.x + 'px';
-        card.style.top = cssPos.y + 'px';
-        card.style.zIndex = zIndex || 1;
-
-        updateCardContent(card, header, body);
-
-        // Add author initials in upper right corner
-        if (authorInitials) {
-            const authorEl = document.createElement('div');
-            authorEl.className = 'card-author';
-            authorEl.textContent = authorInitials;
-            card.appendChild(authorEl);
-        }
-
-        card.draggable = true;
-        card.addEventListener('dblclick', handleCardDoubleClick);
-
-        viewportContent.appendChild(card);
-
-        debugLog.info('Card appended to viewport', {
-            id,
-            cardRect: card.getBoundingClientRect(),
-            computedStyle: {
-                left: card.style.left,
-                top: card.style.top,
-                transform: window.getComputedStyle(card).transform
+                editModal.style.display = 'none';
+                editModal.dataset.editingCardId = '';
             }
         });
     }
 
-    // WebSocket event listeners
+    if (editCancel) {
+        editCancel.addEventListener('click', () => {
+            editModal.style.display = 'none';
+            editModal.dataset.editingCardId = '';
+        });
+    }
+}
+
+// ============================================================================
+// SOCKET.IO HANDLERS
+// ============================================================================
+
+function setupSocketHandlers() {
     socket.on('state:init', (serverState) => {
-        // Clear existing cards and wormholes
-        cardList.innerHTML = '';
-        viewportContent.querySelectorAll('.viewport-card').forEach(card => card.remove());
-        viewportContent.querySelectorAll('.wormhole-portal').forEach(wormhole => wormhole.remove());
+        debugLog.info('Received state:init from server', serverState);
+
+        // Migrate old format if needed
+        serverState = migrateProjectData(serverState);
+
+        // Clear existing state
+        appState.clearAll();
+
+        const projectNameEl = document.getElementById('project-name');
+        const viewportContent = document.querySelector('.viewport-content');
 
         // Set project name
         if (serverState.projectName) {
-            // Server already has a name for this project
             projectNameEl.value = serverState.projectName;
+            appState.projectName = serverState.projectName;
             saveKnownProject(currentProjectId, serverState.projectName);
         } else {
-            // Check if we have this project in localStorage
             const knownProjects = getKnownProjects();
-            if (knownProjects[currentProjectId]) {
-                // Use the known project name and tell the server
-                const knownName = knownProjects[currentProjectId].name;
-                projectNameEl.value = knownName;
-                socket.emit('project:rename', { projectId: currentProjectId, name: knownName });
-            } else {
-                // Generate a new random name for this new project
-                const randomName = generateProjectName();
-                projectNameEl.value = randomName;
-                socket.emit('project:rename', { projectId: currentProjectId, name: randomName });
-                saveKnownProject(currentProjectId, randomName);
-            }
+            const name = knownProjects[currentProjectId] || generateProjectName();
+            projectNameEl.value = name;
+            socket.emit('project:rename', { projectId: currentProjectId, name });
         }
 
-        // Load palette cards
-        serverState.paletteCards.forEach(cardData => {
-            createPaletteCard(cardData.type, cardData.color);
-        });
+        // Load cards
+        if (serverState.cards) {
+            serverState.cards.forEach(cardData => {
+                const card = new Card(
+                    cardData.x,
+                    cardData.y,
+                    cardData.id,
+                    cardData.header,
+                    cardData.body,
+                    cardData.color,
+                    cardData.authorInitials,
+                    cardData.zIndex
+                );
 
-        // Load viewport cards
-        serverState.viewportCards.forEach(cardData => {
-            createViewportCard(cardData.id, cardData.header, cardData.body, cardData.color, cardData.left, cardData.top, cardData.zIndex, cardData.authorInitials);
-        });
+                viewportContent.appendChild(card.render(viewportManager));
+                appState.addCard(card);
+                setupCardDragHandlers(card);
+            });
+        }
 
         // Load wormholes
         if (serverState.wormholes) {
             serverState.wormholes.forEach(wormholeData => {
-                createWormholeElement(wormholeData.x, wormholeData.y, wormholeData.id, wormholeData.partnerId);
+                const wormhole = new Wormhole(
+                    wormholeData.x,
+                    wormholeData.y,
+                    wormholeData.id,
+                    wormholeData.partnerId
+                );
+
+                viewportContent.appendChild(wormhole.render(viewportManager));
+                appState.addWormhole(wormhole);
+                setupWormholeDragHandlers(wormhole);
             });
         }
+
+        debugLog.info('State loaded', {
+            cards: appState.cards.size,
+            wormholes: appState.wormholes.size
+        });
     });
 
-    socket.on('project:renamed', (data) => {
-        projectNameEl.value = data.name;
-        saveKnownProject(currentProjectId, data.name);
-    });
-
-    socket.on('palette:add', (cardData) => {
-        const existingCards = document.querySelectorAll('.palette-card');
-        for (let card of existingCards) {
-            if (card.dataset.cardType === cardData.type && card.dataset.cardColor === cardData.color) {
-                return;
-            }
-        }
-        createPaletteCard(cardData.type, cardData.color);
-    });
-
+    // Card added by another user
     socket.on('viewport:add', (cardData) => {
-        createViewportCard(cardData.id, cardData.header, cardData.body, cardData.color, cardData.left, cardData.top, cardData.zIndex, cardData.authorInitials);
+        const viewportContent = document.querySelector('.viewport-content');
+        const card = new Card(
+            cardData.left,  // Server still uses 'left'
+            cardData.top,   // Server still uses 'top'
+            cardData.id,
+            cardData.header,
+            cardData.body,
+            cardData.color,
+            cardData.authorInitials,
+            cardData.zIndex
+        );
+
+        viewportContent.appendChild(card.render(viewportManager));
+        appState.addCard(card);
+        setupCardDragHandlers(card);
     });
 
-    socket.on('viewport:move', (data) => {
-        const card = document.querySelector(`[data-id="${data.id}"]`);
-        if (card) {
-            // data.left and data.top are workspace coordinates (center-origin) with 'px' suffix
-            // Convert to CSS coordinates (top-left origin)
-            const workspaceX = parseFloat(data.left);
-            const workspaceY = parseFloat(data.top);
-            const cssPos = workspaceToCSS(workspaceX, workspaceY);
-
-            card.style.left = cssPos.x + 'px';
-            card.style.top = cssPos.y + 'px';
-            card.style.zIndex = data.zIndex;
-        }
-    });
-
-    socket.on('viewport:update', (data) => {
-        const card = document.querySelector(`[data-id="${data.id}"]`);
-        if (card) {
-            updateCardContent(card, data.header, data.body);
-            card.style.zIndex = data.zIndex;
-        }
-    });
-
-    // Handle wormhole added
+    // Wormhole added by another user
     socket.on('wormhole:add', (wormholeData) => {
-        createWormholeElement(wormholeData.x, wormholeData.y, wormholeData.id, wormholeData.partnerId);
+        const viewportContent = document.querySelector('.viewport-content');
+        const wormhole = new Wormhole(
+            wormholeData.x,
+            wormholeData.y,
+            wormholeData.id,
+            wormholeData.partnerId
+        );
+
+        viewportContent.appendChild(wormhole.render(viewportManager));
+        appState.addWormhole(wormhole);
+        setupWormholeDragHandlers(wormhole);
     });
 
-    // Handle wormhole moved
+    // Wormhole moved by another user
     socket.on('wormhole:move', (data) => {
-        const wormhole = document.querySelector(`.wormhole-portal[data-id="${data.id}"]`);
+        const wormhole = appState.getWormhole(data.id);
         if (wormhole) {
-            const viewport = document.querySelector('.viewport');
-            const rect = viewport.getBoundingClientRect();
-            const viewportStyle = window.getComputedStyle(viewport);
-            const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-            const paddingTop = parseFloat(viewportStyle.paddingTop);
-            const viewportWidth = rect.width - paddingLeft * 2;
-            const viewportHeight = rect.height - paddingTop * 2;
-            const centerX = viewportWidth / 2;
-            const centerY = viewportHeight / 2;
-
-            const cssX = data.x + centerX;
-            const cssY = data.y + centerY;
-
-            wormhole.style.left = cssX + 'px';
-            wormhole.style.top = cssY + 'px';
+            wormhole.x = data.x;
+            wormhole.y = data.y;
+            wormhole.updatePosition(viewportManager);
         }
     });
 
-    // Handle clear viewport
-    socket.on('viewport:clear', () => {
-        viewportContent.querySelectorAll('.viewport-card').forEach(card => card.remove());
-        viewportContent.querySelectorAll('.wormhole-portal').forEach(wormhole => wormhole.remove());
-        debugLog.info('All viewport cards and wormholes deleted');
+    // Card moved by another user
+    socket.on('viewport:move', (data) => {
+        const card = appState.getCard(data.id);
+        if (card) {
+            card.x = data.left;
+            card.y = data.top;
+            card.zIndex = data.zIndex;
+            card.element.style.zIndex = data.zIndex;
+            card.updatePosition(viewportManager);
+        }
     });
 
-    // Handle clear palette
-    socket.on('palette:clear', () => {
-        cardList.innerHTML = '';
-        debugLog.info('Palette cleared');
-    });
-
-    // Handle project deleted
-    socket.on('project:deleted', () => {
-        alert('This project has been deleted.');
-        closeProject();
-    });
-
-    // Handle full state sync (e.g., after z-index normalization)
-    socket.on('state:sync', (serverState) => {
-        // Update all viewport cards with new z-index values
-        serverState.viewportCards.forEach(cardData => {
-            const card = document.querySelector(`[data-id="${cardData.id}"]`);
-            if (card) {
-                card.style.zIndex = cardData.zIndex;
-            }
-        });
-        console.log('Z-index normalized - card stacking order preserved');
+    // Card updated by another user
+    socket.on('card:update', (data) => {
+        const card = appState.getCard(data.id);
+        if (card) {
+            card.updateContent(data.header, data.body);
+        }
     });
 }
 
-// Function to set up user identity event listeners (called after overlay is created)
-function setupUserIdentityListeners() {
-    const userInitialsInput = document.getElementById('user-initials');
-    const userNameInput = document.getElementById('user-name');
-    const initialsDropdown = document.getElementById('initials-dropdown');
+// ============================================================================
+// DRAG HANDLERS FOR CARDS AND WORMHOLES
+// ============================================================================
 
-    if (!userInitialsInput || !userNameInput || !initialsDropdown) {
-        // Elements don't exist yet (no overlay), will be set up later
-        return;
-    }
+function setupCardDragHandlers(card) {
+    let onMouseMove = null;
+    let onMouseUp = null;
 
-    let validationTimeout = null;
+    card.element.addEventListener('mousedown', (e) => {
+        card.startDrag(e, viewportManager);
+        appState.currentDrag = card;
 
-    // Initially disable name field until initials are validated
-    userNameInput.disabled = true;
+        onMouseMove = (moveEvent) => {
+            card.drag(moveEvent, viewportManager, appState);
+        };
 
-    // Priority: project-specific user > session user > show dropdown
-    if (currentProjectId) {
-        // Check if this user has contributed to this specific project before
-        const projectUsers = getProjectUsers(currentProjectId);
-        if (projectUsers.length > 0) {
-            // Use the most recent user for THIS project
-            const mostRecentUser = projectUsers[0];
-            userInitialsInput.value = mostRecentUser.initials;
-            userNameInput.value = mostRecentUser.name;
-            userNameInput.disabled = false;
-            // Validate with server and auto-authenticate
-            validateInitials(mostRecentUser.initials, true);
-        } else {
-            // This is a new project - try session user as fallback
-            const sessionUser = getSessionUser();
-            if (sessionUser) {
-                userInitialsInput.value = sessionUser.initials;
-                userNameInput.value = sessionUser.name;
-                userNameInput.disabled = false;
-                // Validate with server and auto-authenticate
-                validateInitials(sessionUser.initials, true);
-            } else {
-                // Brand new user - show dropdown on focus
-                userInitialsInput.addEventListener('focus', function showAllUsers() {
-                    if (userInitialsInput.value === '') {
-                        showUserDropdown('');
-                    }
-                    // Remove this listener after first focus
-                    userInitialsInput.removeEventListener('focus', showAllUsers);
-                });
-            }
-        }
-    } else {
-        // No project open yet - show dropdown on focus
-        userInitialsInput.addEventListener('focus', function showAllUsers() {
-            if (userInitialsInput.value === '') {
-                showUserDropdown('');
-            }
-            // Remove this listener after first focus
-            userInitialsInput.removeEventListener('focus', showAllUsers);
-        });
-    }
+        onMouseUp = (upEvent) => {
+            card.endDrag(upEvent, viewportManager, appState);
+            appState.currentDrag = null;
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
 
-    // Handle Tab key in initials field
-    userInitialsInput.addEventListener('keydown', function(e) {
-        if (e.key === 'Tab') {
-            const initials = userInitialsInput.value.trim().toUpperCase();
-            if (initials) {
-                const localUsers = getProjectUsers(currentProjectId);
-                const filteredUsers = localUsers.filter(user => user.initials.toUpperCase().startsWith(initials));
-
-                // If exactly one match, auto-select it
-                if (filteredUsers.length === 1) {
-                    e.preventDefault();
-                    userInitialsInput.value = filteredUsers[0].initials;
-                    initialsDropdown.classList.remove('show');
-                    validateInitials(filteredUsers[0].initials, true);
-                    // Focus will move to name field after validation enables it
-                    setTimeout(() => {
-                        if (!userNameInput.disabled) {
-                            userNameInput.focus();
-                        }
-                    }, 100);
-                }
-            }
-        } else if (e.key === 'Enter') {
-            const initials = userInitialsInput.value.trim().toUpperCase();
-            if (initials && userNameInput.value.trim()) {
-                e.preventDefault();
-                authenticateUser(initials, userNameInput.value.trim());
-            }
-        }
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
     });
-
-    // Handle initials input
-    userInitialsInput.addEventListener('input', function(e) {
-        const initials = e.target.value.toUpperCase().trim();
-        e.target.value = initials;
-
-        // Clear validation states
-        userInitialsInput.classList.remove('valid', 'error');
-        userNameInput.disabled = true;
-        userNameInput.value = '';
-        userNameInput.removeAttribute('data-expected-name');
-        isUserAuthenticated = false;
-        setControlsEnabled(false);
-
-        // Show filtered dropdown if we have at least one character
-        if (initials.length > 0) {
-            showUserDropdown(initials);
-
-            // Debounced validation
-            clearTimeout(validationTimeout);
-            validationTimeout = setTimeout(() => {
-                validateInitials(initials);
-            }, 300);
-        } else {
-            // Show all users if field becomes empty
-            showUserDropdown('');
-        }
-    });
-
-    // Validate initials with server
-    function validateInitials(initials, autoFillName = false) {
-        if (!currentProjectId || !socket) return;
-
-        socket.emit('user:validate', { projectId: currentProjectId, initials }, (response) => {
-            if (response.available) {
-                userInitialsInput.classList.remove('error');
-                userInitialsInput.classList.add('valid');
-                userNameInput.disabled = false;
-
-                // If this is a returning user, auto-fill their name
-                if (response.isReturning && response.existingName) {
-                    userNameInput.value = response.existingName;
-                    userNameInput.setAttribute('data-expected-name', response.existingName);
-
-                    // If called from dropdown, auto-authenticate
-                    if (autoFillName) {
-                        authenticateUser(initials, response.existingName);
-                    }
-                } else {
-                    // New user - clear any previous name
-                    userNameInput.removeAttribute('data-expected-name');
-                }
-                // Don't auto-focus name field - let user tab to it
-            } else {
-                // Initials are actively in use
-                userInitialsInput.classList.remove('valid');
-                userInitialsInput.classList.add('error');
-                userNameInput.disabled = true;
-                userNameInput.value = '';
-                userNameInput.removeAttribute('data-expected-name');
-            }
-        });
-    }
-
-    // Show dropdown with users filtered by first letter
-    function showUserDropdown(filterInitials = '') {
-        if (!currentProjectId) return;
-
-        const localUsers = getProjectUsers(currentProjectId);
-        initialsDropdown.innerHTML = '';
-
-        // Filter users by first letter if provided
-        const filteredUsers = filterInitials
-            ? localUsers.filter(user => user.initials.startsWith(filterInitials))
-            : localUsers;
-
-        if (filteredUsers.length === 0) {
-            const emptyItem = document.createElement('div');
-            emptyItem.className = 'dropdown-item';
-            emptyItem.textContent = filterInitials ? `No users starting with "${filterInitials}"` : 'No recent users';
-            emptyItem.style.fontStyle = 'italic';
-            emptyItem.style.color = '#999';
-            initialsDropdown.appendChild(emptyItem);
-        } else {
-            filteredUsers.forEach(user => {
-                const item = document.createElement('div');
-                item.className = 'dropdown-item';
-                item.innerHTML = `<span class="dropdown-item-initials">${user.initials}</span><span class="dropdown-item-name">${user.name}</span>`;
-                item.addEventListener('click', () => {
-                    userInitialsInput.value = user.initials;
-                    initialsDropdown.classList.remove('show');
-                    validateInitials(user.initials, true);
-                });
-                initialsDropdown.appendChild(item);
-            });
-        }
-
-        initialsDropdown.classList.add('show');
-    }
-
-    // Handle name input
-    userNameInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            const initials = userInitialsInput.value.trim();
-            const name = userNameInput.value.trim();
-
-            if (initials && name) {
-                authenticateUser(initials, name);
-            }
-        }
-    });
-
-    userNameInput.addEventListener('blur', function() {
-        const initials = userInitialsInput.value.trim();
-        const name = userNameInput.value.trim();
-
-        if (initials && name && !isUserAuthenticated) {
-            authenticateUser(initials, name);
-        }
-    });
-
-    // Authenticate user with server
-    function authenticateUser(initials, name) {
-        if (!currentProjectId || !socket) return;
-
-        // Check if this is a returning user with expected name
-        const expectedName = userNameInput.getAttribute('data-expected-name');
-        if (expectedName && name !== expectedName) {
-            alert(`This user's name is "${expectedName}". Please use the correct name or choose different initials.`);
-            userNameInput.value = expectedName;
-            userNameInput.focus();
-            return;
-        }
-
-        socket.emit('user:register', { projectId: currentProjectId, initials, name }, (response) => {
-            if (response.success) {
-                currentUserInitials = initials;
-                currentUserName = name;
-                isUserAuthenticated = true;
-
-                // Save to session and localStorage
-                saveSessionUser(initials, name);
-                saveProjectUser(currentProjectId, initials, name);
-
-                // Update welcome text with user info
-                const welcomeText = document.getElementById('welcome-text');
-                if (welcomeText) {
-                    welcomeText.textContent = `Welcome to your collaborative workspace, ${name} [${initials}]`;
-                }
-
-                // Enable all controls
-                setControlsEnabled(true);
-
-                console.log(`User authenticated: ${initials} (${name})`);
-            } else {
-                alert(response.message || 'Failed to register user. Initials may have been taken.');
-                userInitialsInput.classList.add('error');
-                userNameInput.disabled = true;
-                isUserAuthenticated = false;
-                setControlsEnabled(false);
-            }
-        });
-    }
 }
 
-// Function to populate Open submenu with known projects
-function populateOpenSubmenu() {
-    const submenu = document.getElementById('open-submenu');
-    const knownProjects = getKnownProjects();
-    const projectIds = Object.keys(knownProjects);
+function setupWormholeDragHandlers(wormhole) {
+    let onMouseMove = null;
+    let onMouseUp = null;
 
-    // Sort by lastAccessed (most recent first)
-    projectIds.sort((a, b) => {
-        const dateA = new Date(knownProjects[a].lastAccessed);
-        const dateB = new Date(knownProjects[b].lastAccessed);
-        return dateB - dateA;
+    wormhole.element.addEventListener('mousedown', (e) => {
+        wormhole.startDrag(e, viewportManager);
+        appState.currentDrag = wormhole;
+
+        onMouseMove = (moveEvent) => {
+            wormhole.drag(moveEvent, viewportManager, appState);
+        };
+
+        onMouseUp = (upEvent) => {
+            wormhole.endDrag(upEvent, viewportManager, appState);
+            appState.currentDrag = null;
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
     });
-
-    submenu.innerHTML = '';
-
-    if (projectIds.length === 0) {
-        const emptyItem = document.createElement('a');
-        emptyItem.href = '#';
-        emptyItem.textContent = 'No known projects';
-        emptyItem.style.fontStyle = 'italic';
-        emptyItem.style.color = '#999';
-        emptyItem.addEventListener('click', (e) => e.preventDefault());
-        submenu.appendChild(emptyItem);
-    } else {
-        projectIds.forEach(id => {
-            const project = knownProjects[id];
-            const item = document.createElement('a');
-            item.href = '#';
-            item.innerHTML = `${project.name}<span class="submenu-item-id">${id}</span>`;
-            item.addEventListener('click', function(e) {
-                e.preventDefault();
-                openProject(id);
-            });
-            submenu.appendChild(item);
-        });
-    }
 }
 
-// Main application
+// ============================================================================
+// MAIN INITIALIZATION
+// ============================================================================
+
 document.addEventListener('DOMContentLoaded', function() {
-    const projectNameEl = document.getElementById('project-name');
-    const shareBtn = document.getElementById('share-btn');
+    debugLog.info('DOM loaded, initializing CardStorming');
 
-    // Populate Open submenu
-    populateOpenSubmenu();
+    // Initialize viewport manager
+    const viewport = document.querySelector('.viewport');
+    const viewportContent = document.querySelector('.viewport-content');
+    viewportManager = new ViewportManager(viewport, viewportContent);
+    window.viewportManager = viewportManager; // For debugging
 
-    // Check if we should open a project on load
+    // Initialize socket.io
+    socket = io();
+    appState.socket = socket;
+
+    // Get project ID from URL
+    currentProjectId = getProjectIdFromURL();
+
     if (currentProjectId) {
         openProject(currentProjectId);
     } else {
         closeProject();
     }
 
-    // Handle hash changes (when URL is pasted or changed)
-    window.addEventListener('hashchange', function() {
+    // Setup all event listeners
+    setupMenuHandlers();
+    setupZoomControls();
+    setupToolbarButtons();
+    setupViewportDrag();
+    setupEditModal();
+    setupSocketHandlers();
+
+    // Hash change listener
+    window.addEventListener('hashchange', () => {
         const newProjectId = getProjectIdFromURL();
         if (newProjectId && newProjectId !== currentProjectId) {
             openProject(newProjectId);
@@ -1205,1699 +770,5 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // New menu item
-    const newMenuItem = document.getElementById('menu-new');
-    if (newMenuItem) {
-        newMenuItem.addEventListener('click', function(e) {
-            e.preventDefault();
-            const newProjectId = generateProjectId();
-            openProject(newProjectId);
-        });
-    }
-
-    // Open submenu is handled by hover and populated dynamically
-
-    // Close menu item
-    const closeMenuItem = document.getElementById('menu-close');
-    if (closeMenuItem) {
-        closeMenuItem.addEventListener('click', function(e) {
-            e.preventDefault();
-            if (isProjectOpen && confirm('Close the current project?')) {
-                closeProject();
-            }
-        });
-    }
-
-    // Exit menu item
-    const exitMenuItem = document.getElementById('menu-exit');
-    if (exitMenuItem) {
-        exitMenuItem.addEventListener('click', function(e) {
-            e.preventDefault();
-            if (confirm('Are you sure you want to exit?')) {
-                window.close();
-            }
-        });
-    }
-
-    // Delete All Cards menu item
-    const deleteCardsMenuItem = document.getElementById('menu-delete-cards');
-    if (deleteCardsMenuItem) {
-        deleteCardsMenuItem.addEventListener('click', function(e) {
-            e.preventDefault();
-            if (confirm('Delete all cards from the viewport? This cannot be undone.')) {
-                socket.emit('viewport:clear');
-            }
-        });
-    }
-
-    // Delete Palette menu item
-    const deletePaletteMenuItem = document.getElementById('menu-delete-palette');
-    if (deletePaletteMenuItem) {
-        deletePaletteMenuItem.addEventListener('click', function(e) {
-            e.preventDefault();
-            if (confirm('Delete all palette card types? This cannot be undone.')) {
-                socket.emit('palette:clear');
-            }
-        });
-    }
-
-    // Delete Project menu item
-    const deleteProjectMenuItem = document.getElementById('menu-delete-project');
-    if (deleteProjectMenuItem) {
-        deleteProjectMenuItem.addEventListener('click', function(e) {
-            e.preventDefault();
-            if (confirm('Delete this entire project? This cannot be undone.')) {
-                socket.emit('project:delete', { projectId: currentProjectId });
-                // Close the project after deletion
-                setTimeout(() => closeProject(), 100);
-            }
-        });
-    }
-
-    // Show Log menu item
-    const showLogMenuItem = document.getElementById('menu-show-log');
-    const logModal = document.getElementById('log-modal');
-    const logClearBtn = document.getElementById('log-clear');
-    const logCloseBtn = document.getElementById('log-close');
-
-    if (showLogMenuItem) {
-        showLogMenuItem.addEventListener('click', function(e) {
-            e.preventDefault();
-            if (debugLog.muted) {
-                // Don't show log if muted
-                return;
-            }
-            logModal.style.display = 'block';
-            debugLog.updateDisplay();
-        });
-    }
-
-    const logMuteBtn = document.getElementById('log-mute');
-    const logCopyBtn = document.getElementById('log-copy');
-
-    if (logMuteBtn) {
-        logMuteBtn.addEventListener('click', function() {
-            debugLog.muted = true;
-            logModal.style.display = 'none';
-        });
-    }
-
-    if (logCopyBtn) {
-        logCopyBtn.addEventListener('click', function() {
-            const logText = debugLog.entries.map(entry => {
-                const dataStr = entry.data ? '\n' + JSON.stringify(entry.data, null, 2) : '';
-                return `${entry.timestamp} [${entry.level.toUpperCase()}] ${entry.message}${dataStr}`;
-            }).join('\n\n');
-
-            navigator.clipboard.writeText(logText).then(() => {
-                logCopyBtn.textContent = 'Copied!';
-                setTimeout(() => {
-                    logCopyBtn.textContent = 'Copy All';
-                }, 1500);
-            }).catch(err => {
-                console.error('Failed to copy:', err);
-            });
-        });
-    }
-
-    if (logClearBtn) {
-        logClearBtn.addEventListener('click', function() {
-            debugLog.clear();
-        });
-    }
-
-    if (logCloseBtn) {
-        logCloseBtn.addEventListener('click', function() {
-            logModal.style.display = 'none';
-        });
-    }
-
-    // Close log modal when clicking outside
-    window.addEventListener('click', function(event) {
-        if (event.target === logModal) {
-            logModal.style.display = 'none';
-        }
-    });
-
-    // About menu item
-    const aboutMenuItem = document.getElementById('menu-about');
-    if (aboutMenuItem) {
-        aboutMenuItem.addEventListener('click', function(e) {
-            e.preventDefault();
-            alert('CardStorming v1.0\n\nA collaborative workspace for card-based brainstorming and ideation.\n\nDeveloped with Claude Code');
-        });
-    }
-
-    // Share button - show dialog
-    const shareModal = document.getElementById('share-modal');
-    const shareMessage = document.getElementById('share-message');
-    const shareCopyText = document.getElementById('share-copy-text');
-    const shareCopyLink = document.getElementById('share-copy-link');
-    const shareCancel = document.getElementById('share-cancel');
-
-    shareBtn.addEventListener('click', function() {
-        const projectName = projectNameEl.value.trim();
-        const projectUrl = window.location.origin + window.location.pathname + '#' + currentProjectId;
-        const message = `Join me in CardStorming on "${projectName}"!\n\n${projectUrl}`;
-
-        // Display the message in the dialog
-        shareMessage.textContent = message;
-
-        // Show the dialog
-        shareModal.style.display = 'block';
-    });
-
-    // Copy Text button
-    shareCopyText.addEventListener('click', function() {
-        const projectName = projectNameEl.value.trim();
-        const projectUrl = window.location.origin + window.location.pathname + '#' + currentProjectId;
-        const message = `Join me in CardStorming on "${projectName}"!\n\n${projectUrl}`;
-
-        navigator.clipboard.writeText(message).then(function() {
-            shareCopyText.textContent = '✓ Copied!';
-            shareCopyText.style.backgroundColor = '#4CAF50';
-            shareCopyText.style.color = 'white';
-            setTimeout(function() {
-                shareCopyText.textContent = 'Copy Text';
-                shareCopyText.style.backgroundColor = '';
-                shareCopyText.style.color = '';
-                shareModal.style.display = 'none';
-            }, 1000);
-        }).catch(function(err) {
-            alert('Failed to copy to clipboard');
-        });
-    });
-
-    // Copy Link button
-    shareCopyLink.addEventListener('click', function() {
-        const projectUrl = window.location.origin + window.location.pathname + '#' + currentProjectId;
-
-        navigator.clipboard.writeText(projectUrl).then(function() {
-            shareCopyLink.textContent = '✓ Copied!';
-            shareCopyLink.style.backgroundColor = '#4CAF50';
-            shareCopyLink.style.color = 'white';
-            setTimeout(function() {
-                shareCopyLink.textContent = 'Copy Link';
-                shareCopyLink.style.backgroundColor = '';
-                shareCopyLink.style.color = '';
-                shareModal.style.display = 'none';
-            }, 1000);
-        }).catch(function(err) {
-            alert('Failed to copy to clipboard');
-        });
-    });
-
-    // Cancel button
-    shareCancel.addEventListener('click', function() {
-        shareModal.style.display = 'none';
-    });
-
-    // Close modal when clicking outside
-    window.addEventListener('click', function(event) {
-        if (event.target === shareModal) {
-            shareModal.style.display = 'none';
-        }
-    });
-
-    // Project name editing
-    projectNameEl.addEventListener('change', function() {
-        const newName = projectNameEl.value.trim();
-        if (newName && socket) {
-            socket.emit('project:rename', { projectId: currentProjectId, name: newName });
-        }
-    });
-
-    projectNameEl.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            projectNameEl.blur();
-        }
-    });
-
-    // Zoom controls with press-and-hold
-    const zoomOutBtn = document.getElementById('zoom-out-btn');
-    const centerBtn = document.getElementById('center-btn');
-    const zoomInBtn = document.getElementById('zoom-in-btn');
-
-    let zoomInterval = null;
-    const ZOOM_HOLD_DELAY = 500; // Initial delay before continuous zoom starts (ms)
-    const ZOOM_HOLD_INTERVAL = 50; // Interval between zoom steps when holding (ms)
-
-    function startContinuousZoom(zoomFunction, event) {
-        // Immediate first zoom
-        zoomFunction(event);
-
-        // Start continuous zoom after delay (no event for continuous - zoom to center)
-        let timeoutId = setTimeout(() => {
-            zoomInterval = setInterval(() => zoomFunction(), ZOOM_HOLD_INTERVAL);
-        }, ZOOM_HOLD_DELAY);
-
-        return { timeoutId, intervalId: null };
-    }
-
-    function stopContinuousZoom(timers) {
-        if (timers.timeoutId) clearTimeout(timers.timeoutId);
-        if (zoomInterval) {
-            clearInterval(zoomInterval);
-            zoomInterval = null;
-        }
-    }
-
-    if (zoomOutBtn) {
-        let zoomOutTimers = {};
-
-        zoomOutBtn.addEventListener('mousedown', function(e) {
-            e.preventDefault();
-            zoomOutTimers = startContinuousZoom(zoomOut, e);
-        });
-
-        zoomOutBtn.addEventListener('mouseup', function(e) {
-            e.preventDefault();
-            stopContinuousZoom(zoomOutTimers);
-        });
-
-        zoomOutBtn.addEventListener('mouseleave', function(e) {
-            stopContinuousZoom(zoomOutTimers);
-        });
-
-        // Touch support
-        zoomOutBtn.addEventListener('touchstart', function(e) {
-            e.preventDefault();
-            zoomOutTimers = startContinuousZoom(zoomOut, e);
-        });
-
-        zoomOutBtn.addEventListener('touchend', function(e) {
-            e.preventDefault();
-            stopContinuousZoom(zoomOutTimers);
-        });
-    }
-
-    if (centerBtn) {
-        centerBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            centerView();
-        });
-    }
-
-    if (zoomInBtn) {
-        let zoomInTimers = {};
-
-        zoomInBtn.addEventListener('mousedown', function(e) {
-            e.preventDefault();
-            zoomInTimers = startContinuousZoom(zoomIn, e);
-        });
-
-        zoomInBtn.addEventListener('mouseup', function(e) {
-            e.preventDefault();
-            stopContinuousZoom(zoomInTimers);
-        });
-
-        zoomInBtn.addEventListener('mouseleave', function(e) {
-            stopContinuousZoom(zoomInTimers);
-        });
-
-        // Touch support
-        zoomInBtn.addEventListener('touchstart', function(e) {
-            e.preventDefault();
-            zoomInTimers = startContinuousZoom(zoomIn, e);
-        });
-
-        zoomInBtn.addEventListener('touchend', function(e) {
-            e.preventDefault();
-            stopContinuousZoom(zoomInTimers);
-        });
-    }
-
-    // Zoom-search and Wormhole button mouse-based drag behavior (not using HTML5 drag API)
-    const zoomSearchBtn = document.getElementById('zoom-search-btn');
-    const wormholeBtn = document.getElementById('wormhole-btn');
-    console.log('WORMHOLE BUTTON CHECK:', wormholeBtn);
-    debugLog.info('Wormhole button found?', { exists: !!wormholeBtn, element: wormholeBtn });
-    let isSearchDragging = false;
-    let searchDragStartTime = null;
-    let nearestCard = null;
-    let searchAnimationFrame = null;
-    let activeSearchBtn = null; // Track which button was clicked
-    let searchGhost = null; // Visual indicator that follows cursor
-    const SEARCH_ZOOM_SPEED = 0.002; // Same as card drag zoom speed
-    const SEARCH_ZOOM_DELAY_MS = 1500; // Same as card drag zoom delay (1.5 seconds)
-    const SEARCH_PAN_SPEED = 3; // Same as card drag pan speed
-    const SEARCH_EDGE_RATIO = 0.15; // Same as card drag edge distance (15%)
-
-    // Wormhole portal state
-    let wormholeState = null; // 'placing-first' or 'placing-second'
-    let firstWormhole = null; // Reference to first wormhole element
-    let secondWormhole = null; // Reference to second wormhole element (the one being dragged)
-
-    // Function to create a wormhole element on the viewport
-    function createWormholeElement(workspaceX, workspaceY, wormholeId, partnerId) {
-        const viewportContent = document.querySelector('.viewport-content');
-        const viewport = document.querySelector('.viewport');
-        if (!viewportContent || !viewport) return null;
-
-        const rect = viewport.getBoundingClientRect();
-        const viewportStyle = window.getComputedStyle(viewport);
-        const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-        const paddingTop = parseFloat(viewportStyle.paddingTop);
-        const viewportWidth = rect.width - paddingLeft * 2;
-        const viewportHeight = rect.height - paddingTop * 2;
-        const centerX = viewportWidth / 2;
-        const centerY = viewportHeight / 2;
-
-        // Convert workspace to CSS coordinates
-        const cssX = workspaceX + centerX;
-        const cssY = workspaceY + centerY;
-
-        // Create wormhole element - circular portal
-        const wormhole = document.createElement('div');
-        wormhole.className = 'wormhole-portal';
-        wormhole.dataset.id = wormholeId;
-        wormhole.dataset.partnerId = partnerId;
-        wormhole.style.position = 'absolute';
-        wormhole.style.left = cssX + 'px';
-        wormhole.style.top = cssY + 'px';
-        wormhole.style.width = '120px';
-        wormhole.style.height = '120px';
-        wormhole.style.backgroundColor = 'rgba(255, 255, 255, 0.95)';
-        wormhole.style.border = '3px solid #666';
-        wormhole.style.borderRadius = '50%'; // Make it circular
-        wormhole.style.display = 'flex';
-        wormhole.style.alignItems = 'center';
-        wormhole.style.justifyContent = 'center';
-        wormhole.style.cursor = 'pointer';
-        wormhole.style.zIndex = '100';
-        wormhole.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.3)';
-
-        // Get the wormhole button to copy its SVG
-        const wormholeBtnElement = document.getElementById('wormhole-btn');
-        if (wormholeBtnElement) {
-            wormhole.innerHTML = wormholeBtnElement.innerHTML;
-            const svg = wormhole.querySelector('svg');
-            if (svg) {
-                svg.style.width = '96px';
-                svg.style.height = '96px';
-            }
-        }
-
-        // Make wormhole draggable
-        let isDraggingWormhole = false;
-        let wormholeOffsetX = 0;
-        let wormholeOffsetY = 0;
-        let dragStartTime = 0;
-        let dragStartX = 0;
-        let dragStartY = 0;
-        let hasMoved = false;
-
-        wormhole.addEventListener('mousedown', function(e) {
-            e.stopPropagation();
-            debugLog.info('Wormhole mousedown', { wormholeId, partnerId });
-            isDraggingWormhole = true;
-            dragStartTime = Date.now();
-            dragStartX = e.clientX;
-            dragStartY = e.clientY;
-            hasMoved = false;
-
-            // Calculate offset from wormhole center to mouse
-            const wormholeRect = wormhole.getBoundingClientRect();
-            const wormholeCenterX = wormholeRect.left + wormholeRect.width / 2;
-            const wormholeCenterY = wormholeRect.top + wormholeRect.height / 2;
-            wormholeOffsetX = e.clientX - wormholeCenterX;
-            wormholeOffsetY = e.clientY - wormholeCenterY;
-
-            wormhole.style.opacity = '0.7';
-            wormhole.style.zIndex = '1000';
-        });
-
-        const moveWormhole = function(e) {
-            if (!isDraggingWormhole) return;
-
-            // Check if mouse has moved more than 5 pixels from start
-            const dx = e.clientX - dragStartX;
-            const dy = e.clientY - dragStartY;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance > 5) {
-                hasMoved = true;
-            }
-
-            if (!hasMoved) return; // Don't move until threshold is crossed
-
-            const mouseWorkspace = screenToWorkspaceNoPan(e.clientX - wormholeOffsetX, e.clientY - wormholeOffsetY);
-            const viewportStyle = window.getComputedStyle(viewport);
-            const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-            const paddingTop = parseFloat(viewportStyle.paddingTop);
-            const viewportRect = viewport.getBoundingClientRect();
-            const viewportWidth = viewportRect.width - paddingLeft * 2;
-            const viewportHeight = viewportRect.height - paddingTop * 2;
-            const centerX = viewportWidth / 2;
-            const centerY = viewportHeight / 2;
-
-            const cssX = mouseWorkspace.x + centerX;
-            const cssY = mouseWorkspace.y + centerY;
-
-            wormhole.style.left = cssX + 'px';
-            wormhole.style.top = cssY + 'px';
-        };
-
-        const stopWormholeDrag = function(e) {
-            if (!isDraggingWormhole) return;
-            isDraggingWormhole = false;
-            wormhole.style.opacity = '1';
-            wormhole.style.zIndex = '100';
-
-            const dragDuration = Date.now() - dragStartTime;
-
-            debugLog.info('Wormhole mouseup', { hasMoved, dragDuration, wormholeId, partnerId });
-
-            // If it was a quick click without movement, treat as teleport click
-            if (!hasMoved && dragDuration < 500) {
-                debugLog.info('Attempting teleport to partner', partnerId);
-                // Teleport to partner wormhole
-                const partner = document.querySelector(`.wormhole-portal[data-id="${partnerId}"]`);
-                debugLog.info('Found partner element', partner ? 'yes' : 'NO');
-                if (partner) {
-                    // Get partner's position in workspace coordinates
-                    const partnerLeft = parseFloat(partner.style.left);
-                    const partnerTop = parseFloat(partner.style.top);
-
-                    debugLog.info('Partner position (CSS)', { partnerLeft, partnerTop });
-
-                    const viewportStyle = window.getComputedStyle(viewport);
-                    const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-                    const paddingTop = parseFloat(viewportStyle.paddingTop);
-                    const viewportRect = viewport.getBoundingClientRect();
-                    const viewportWidth = viewportRect.width - paddingLeft * 2;
-                    const viewportHeight = viewportRect.height - paddingTop * 2;
-                    const centerX = viewportWidth / 2;
-                    const centerY = viewportHeight / 2;
-
-                    // Convert partner CSS to workspace coordinates
-                    const partnerWorkspaceX = partnerLeft - centerX;
-                    const partnerWorkspaceY = partnerTop - centerY;
-
-                    debugLog.info('Partner workspace coords', { partnerWorkspaceX, partnerWorkspaceY });
-
-                    // Pan to center the partner wormhole
-                    const viewportContent = document.querySelector('.viewport-content');
-                    if (viewportContent) {
-                        // Calculate pan needed to center partner
-                        const panX = -partnerWorkspaceX * currentZoom;
-                        const panY = -partnerWorkspaceY * currentZoom;
-
-                        debugLog.info('Applying pan', { panX, panY, currentZoom });
-
-                        viewportContent.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
-
-                        // Set focal point to partner location
-                        focalPoint.x = partnerWorkspaceX;
-                        focalPoint.y = partnerWorkspaceY;
-
-                        debugLog.info('Teleported to partner wormhole', {
-                            from: wormholeId,
-                            to: partnerId,
-                            position: { x: partnerWorkspaceX, y: partnerWorkspaceY }
-                        });
-                    }
-                } else {
-                    debugLog.error('Partner wormhole not found!');
-                }
-            } else if (hasMoved) {
-                // Emit move event to server for persistence
-                const wormholeLeft = parseFloat(wormhole.style.left);
-                const wormholeTop = parseFloat(wormhole.style.top);
-
-                const viewportStyle = window.getComputedStyle(viewport);
-                const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-                const paddingTop = parseFloat(viewportStyle.paddingTop);
-                const viewportRect = viewport.getBoundingClientRect();
-                const viewportWidth = viewportRect.width - paddingLeft * 2;
-                const viewportHeight = viewportRect.height - paddingTop * 2;
-                const centerX = viewportWidth / 2;
-                const centerY = viewportHeight / 2;
-
-                const workspaceX = wormholeLeft - centerX;
-                const workspaceY = wormholeTop - centerY;
-
-                socket.emit('wormhole:move', {
-                    id: wormholeId,
-                    x: workspaceX,
-                    y: workspaceY
-                });
-            }
-        };
-
-        document.addEventListener('mousemove', moveWormhole);
-        document.addEventListener('mouseup', stopWormholeDrag);
-
-        viewportContent.appendChild(wormhole);
-        return wormhole;
-    }
-
-    // Continuous zoom and pan loop
-    function searchDragLoop() {
-        if (!isSearchDragging) {
-            searchAnimationFrame = null;
-            return;
-        }
-
-        const viewport = document.querySelector('.viewport');
-        const viewportContent = document.querySelector('.viewport-content');
-        if (viewport && viewportContent) {
-            // Auto-zoom out after delay (same timing as card drag)
-            const now = Date.now();
-            if (searchDragStartTime && (now - searchDragStartTime >= SEARCH_ZOOM_DELAY_MS)) {
-                if (currentZoom > MIN_ZOOM) {
-                    currentZoom = Math.max(MIN_ZOOM, currentZoom - SEARCH_ZOOM_SPEED);
-
-                    // Update transform with current zoom
-                    let panX = 0, panY = 0;
-                    const currentTransform = viewportContent.style.transform;
-                    if (currentTransform && currentTransform.includes('translate')) {
-                        const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
-                        if (match) {
-                            panX = parseFloat(match[1]);
-                            panY = parseFloat(match[2]);
-                        }
-                    }
-                    viewportContent.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
-                }
-            }
-        }
-
-        searchAnimationFrame = requestAnimationFrame(searchDragLoop);
-    }
-
-    if (zoomSearchBtn) {
-        zoomSearchBtn.addEventListener('mousedown', function(e) {
-            e.preventDefault();
-            isSearchDragging = true;
-            searchDragStartTime = Date.now();
-            activeSearchBtn = zoomSearchBtn;
-            zoomSearchBtn.style.opacity = '0.6';
-
-            // Create ghost element that follows cursor
-            searchGhost = document.createElement('div');
-            searchGhost.style.position = 'fixed';
-            searchGhost.style.pointerEvents = 'none';
-            searchGhost.style.zIndex = '10000';
-            searchGhost.style.width = '64px';
-            searchGhost.style.height = '64px';
-            searchGhost.style.opacity = '0.7';
-            searchGhost.style.left = (e.clientX - 32) + 'px';
-            searchGhost.style.top = (e.clientY - 32) + 'px';
-            searchGhost.innerHTML = zoomSearchBtn.innerHTML;
-            document.body.appendChild(searchGhost);
-
-            // Start continuous animation loop
-            if (!searchAnimationFrame) {
-                searchAnimationFrame = requestAnimationFrame(searchDragLoop);
-            }
-
-            debugLog.info('Zoom-search drag started');
-        });
-    }
-
-    if (wormholeBtn) {
-        console.log('ATTACHING MOUSEDOWN TO WORMHOLE BUTTON');
-        wormholeBtn.addEventListener('mousedown', function(e) {
-            console.log('WORMHOLE MOUSEDOWN FIRED!');
-            e.preventDefault();
-            isSearchDragging = true;
-            searchDragStartTime = Date.now();
-            activeSearchBtn = wormholeBtn;
-            wormholeBtn.style.opacity = '0.6';
-
-            // Create ghost element that follows cursor - circular for wormhole
-            searchGhost = document.createElement('div');
-            searchGhost.style.position = 'fixed';
-            searchGhost.style.pointerEvents = 'none';
-            searchGhost.style.zIndex = '10000';
-            searchGhost.style.width = '120px'; // Circular portal size
-            searchGhost.style.height = '120px'; // Circular portal size
-            searchGhost.style.opacity = '0.7';
-            searchGhost.style.left = (e.clientX - 60) + 'px'; // Center circle on cursor
-            searchGhost.style.top = (e.clientY - 60) + 'px';
-            searchGhost.style.display = 'flex';
-            searchGhost.style.alignItems = 'center';
-            searchGhost.style.justifyContent = 'center';
-            searchGhost.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
-            searchGhost.style.border = '3px solid #666';
-            searchGhost.style.borderRadius = '50%'; // Make it circular
-            searchGhost.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.3)';
-            searchGhost.innerHTML = wormholeBtn.innerHTML;
-            // Scale up the SVG inside
-            const svg = searchGhost.querySelector('svg');
-            if (svg) {
-                svg.style.width = '96px';
-                svg.style.height = '96px';
-            }
-            document.body.appendChild(searchGhost);
-
-            // Start continuous animation loop
-            if (!searchAnimationFrame) {
-                searchAnimationFrame = requestAnimationFrame(searchDragLoop);
-            }
-
-            debugLog.info('Wormhole drag started');
-        });
-    }
-
-    // Global mouse move and up handlers for zoom-search
-    document.addEventListener('mousemove', function(e) {
-        if (!isSearchDragging) return;
-
-        // Update ghost position to follow cursor
-        if (searchGhost) {
-            // Different sizes for wormhole (120x120) vs zoom-search (64x64)
-            if (activeSearchBtn === wormholeBtn) {
-                searchGhost.style.left = (e.clientX - 60) + 'px'; // Center the 120px circle on cursor
-                searchGhost.style.top = (e.clientY - 60) + 'px';
-            } else {
-                searchGhost.style.left = (e.clientX - 32) + 'px'; // Center the 64px icon on cursor
-                searchGhost.style.top = (e.clientY - 32) + 'px';
-            }
-        }
-
-        const viewport = document.querySelector('.viewport');
-        const viewportContent = document.querySelector('.viewport-content');
-        if (!viewport || !viewportContent) return;
-
-        const rect = viewport.getBoundingClientRect();
-
-        // Only process if mouse is over viewport
-        if (e.clientX < rect.left || e.clientX > rect.right ||
-            e.clientY < rect.top || e.clientY > rect.bottom) {
-            return;
-        }
-
-        // Update focal point to mouse position
-        setFocalPointFromEvent(e);
-
-        // Auto-pan near edges (same logic as card drag)
-        const edgeThresholdX = rect.width * SEARCH_EDGE_RATIO;
-        const edgeThresholdY = rect.height * SEARCH_EDGE_RATIO;
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-
-        let panX = 0, panY = 0;
-        const currentTransform = viewportContent.style.transform;
-        if (currentTransform && currentTransform.includes('translate')) {
-            const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
-            if (match) {
-                panX = parseFloat(match[1]);
-                panY = parseFloat(match[2]);
-            }
-        }
-
-        if (mouseX < edgeThresholdX) panX += SEARCH_PAN_SPEED;
-        if (mouseX > rect.width - edgeThresholdX) panX -= SEARCH_PAN_SPEED;
-        if (mouseY < edgeThresholdY) panY += SEARCH_PAN_SPEED;
-        if (mouseY > rect.height - edgeThresholdY) panY -= SEARCH_PAN_SPEED;
-
-        viewportContent.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
-
-        // Find and highlight nearest card
-        const mouseWorkspace = screenToWorkspaceNoPan(e.clientX, e.clientY);
-        const cards = viewportContent.querySelectorAll('.viewport-card');
-        let closestCard = null;
-        let closestDistance = Infinity;
-
-        cards.forEach(card => {
-            const cardLeft = parseFloat(card.style.left);
-            const cardTop = parseFloat(card.style.top);
-            const cardWidth = card.offsetWidth;
-            const cardHeight = card.offsetHeight;
-
-            // Card center in CSS coordinates
-            const cardCenterX = cardLeft + cardWidth / 2;
-            const cardCenterY = cardTop + cardHeight / 2;
-
-            // Convert to workspace coordinates
-            const viewportStyle = window.getComputedStyle(viewport);
-            const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-            const paddingTop = parseFloat(viewportStyle.paddingTop);
-            const viewportWidth = rect.width - paddingLeft * 2;
-            const viewportHeight = rect.height - paddingTop * 2;
-            const centerX = viewportWidth / 2;
-            const centerY = viewportHeight / 2;
-
-            const cardWorkspaceX = cardCenterX - centerX;
-            const cardWorkspaceY = cardCenterY - centerY;
-
-            const distance = Math.sqrt(
-                Math.pow(cardWorkspaceX - mouseWorkspace.x, 2) +
-                Math.pow(cardWorkspaceY - mouseWorkspace.y, 2)
-            );
-
-            if (distance < closestDistance) {
-                closestDistance = distance;
-                closestCard = card;
-            }
-        });
-
-        // Update highlighted card
-        if (closestCard !== nearestCard) {
-            // Remove highlight from previous card
-            if (nearestCard) {
-                nearestCard.style.transform = '';
-                nearestCard.style.zIndex = nearestCard.dataset.originalZ || nearestCard.style.zIndex;
-                delete nearestCard.dataset.originalZ;
-            }
-
-            // Highlight new closest card
-            if (closestCard) {
-                closestCard.dataset.originalZ = closestCard.style.zIndex;
-                closestCard.style.zIndex = '10000';
-                closestCard.style.transform = 'scale(1.2)';
-            }
-
-            nearestCard = closestCard;
-        }
-    });
-
-    document.addEventListener('mouseup', function(e) {
-        if (!isSearchDragging) return;
-
-        debugLog.info('Mouseup detected', { activeSearchBtn: activeSearchBtn ? activeSearchBtn.id : 'none' });
-
-        // Stop the animation loop
-        isSearchDragging = false;
-
-        // Remove ghost element
-        if (searchGhost) {
-            searchGhost.remove();
-            searchGhost = null;
-        }
-
-        // Restore opacity of whichever button was being dragged
-        if (activeSearchBtn) {
-            activeSearchBtn.style.opacity = '1';
-        }
-
-        // Always zoom back in to 100% (1.0) at the drop location
-        const viewport = document.querySelector('.viewport');
-        const viewportContent = document.querySelector('.viewport-content');
-
-        if (viewport && viewportContent) {
-            const rect = viewport.getBoundingClientRect();
-
-            // Check if dropped over viewport
-            const droppedOnViewport = e.clientX >= rect.left && e.clientX <= rect.right &&
-                e.clientY >= rect.top && e.clientY <= rect.bottom;
-
-            debugLog.info('Drop check', { droppedOnViewport, isWormhole: activeSearchBtn === wormholeBtn });
-
-            if (droppedOnViewport) {
-                setFocalPointFromEvent(e);
-
-                // Special handling for wormhole button - create portal pair
-                if (activeSearchBtn === wormholeBtn) {
-                    debugLog.info('Creating wormhole pair on drop');
-                    const mouseWorkspace = screenToWorkspaceNoPan(e.clientX, e.clientY);
-                    debugLog.info('Drop workspace coords', { x: mouseWorkspace.x, y: mouseWorkspace.y });
-
-                    // Generate unique IDs for the wormhole pair
-                    const wormhole1Id = 'wormhole-' + Date.now() + '-1';
-                    const wormhole2Id = 'wormhole-' + Date.now() + '-2';
-                    debugLog.info('Generated wormhole IDs', { wormhole1Id, wormhole2Id });
-                    console.log('createWormholeElement exists?', typeof createWormholeElement);
-
-                    // Create first wormhole at drop location
-                    firstWormhole = createWormholeElement(mouseWorkspace.x, mouseWorkspace.y, wormhole1Id, wormhole2Id);
-                    debugLog.info('First wormhole created', { element: firstWormhole, id: wormhole1Id });
-
-                    // Create second wormhole stacked on top (slightly offset so visible)
-                    secondWormhole = createWormholeElement(mouseWorkspace.x + 5, mouseWorkspace.y + 5, wormhole2Id, wormhole1Id);
-                    debugLog.info('Second wormhole created', { element: secondWormhole, id: wormhole2Id });
-
-                    if (secondWormhole) {
-                        secondWormhole.style.border = '3px solid #00f'; // Blue border to distinguish
-                        secondWormhole.style.zIndex = '101'; // On top
-                    }
-
-                    // Emit socket events for persistence
-                    socket.emit('wormhole:add', {
-                        id: wormhole1Id,
-                        partnerId: wormhole2Id,
-                        x: mouseWorkspace.x,
-                        y: mouseWorkspace.y
-                    });
-
-                    socket.emit('wormhole:add', {
-                        id: wormhole2Id,
-                        partnerId: wormhole1Id,
-                        x: mouseWorkspace.x + 5,
-                        y: mouseWorkspace.y + 5
-                    });
-
-                    // Start dragging the second wormhole immediately
-                    wormholeState = 'placing-second';
-
-                    // Make second wormhole follow the mouse
-                    const dragSecondWormhole = function(moveEvent) {
-                        if (!secondWormhole) return;
-
-                        const moveWorkspace = screenToWorkspaceNoPan(moveEvent.clientX, moveEvent.clientY);
-                        const viewportStyle = window.getComputedStyle(viewport);
-                        const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-                        const paddingTop = parseFloat(viewportStyle.paddingTop);
-                        const viewportWidth = rect.width - paddingLeft * 2;
-                        const viewportHeight = rect.height - paddingTop * 2;
-                        const centerX = viewportWidth / 2;
-                        const centerY = viewportHeight / 2;
-
-                        const cssX = moveWorkspace.x + centerX;
-                        const cssY = moveWorkspace.y + centerY;
-
-                        secondWormhole.style.left = cssX + 'px';
-                        secondWormhole.style.top = cssY + 'px';
-                    };
-
-                    const finishSecondWormhole = function(upEvent) {
-                        document.removeEventListener('mousemove', dragSecondWormhole);
-                        document.removeEventListener('mouseup', finishSecondWormhole);
-
-                        // Get final position and emit move event
-                        if (secondWormhole) {
-                            const wormholeLeft = parseFloat(secondWormhole.style.left);
-                            const wormholeTop = parseFloat(secondWormhole.style.top);
-
-                            const viewportStyle = window.getComputedStyle(viewport);
-                            const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-                            const paddingTop = parseFloat(viewportStyle.paddingTop);
-                            const viewportRect = viewport.getBoundingClientRect();
-                            const viewportWidth = viewportRect.width - paddingLeft * 2;
-                            const viewportHeight = viewportRect.height - paddingTop * 2;
-                            const centerX = viewportWidth / 2;
-                            const centerY = viewportHeight / 2;
-
-                            const workspaceX = wormholeLeft - centerX;
-                            const workspaceY = wormholeTop - centerY;
-
-                            socket.emit('wormhole:move', {
-                                id: wormhole2Id,
-                                x: workspaceX,
-                                y: workspaceY
-                            });
-                        }
-
-                        wormholeState = null;
-
-                        debugLog.info('Wormhole pair placed', {
-                            first: { x: firstWormhole.style.left, y: firstWormhole.style.top },
-                            second: { x: secondWormhole.style.left, y: secondWormhole.style.top }
-                        });
-                    };
-
-                    document.addEventListener('mousemove', dragSecondWormhole);
-                    document.addEventListener('mouseup', finishSecondWormhole);
-
-                    debugLog.info('Wormhole placement started - drag to position second portal');
-                }
-            }
-
-            // Zoom back in to 100% (always, regardless of where dropped)
-            currentZoom = 1.0;
-
-            // Get current pan from transform
-            let panX = 0, panY = 0;
-            const currentTransform = viewportContent.style.transform;
-            if (currentTransform && currentTransform.includes('translate')) {
-                const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
-                if (match) {
-                    panX = parseFloat(match[1]);
-                    panY = parseFloat(match[2]);
-                }
-            }
-            viewportContent.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
-
-            debugLog.info('Search tool dropped, zoomed to 100%', {
-                tool: activeSearchBtn === zoomSearchBtn ? 'zoom-search' : 'wormhole',
-                focalPoint: { ...focalPoint },
-                zoom: currentZoom
-            });
-        }
-
-        // Remove highlight from card
-        if (nearestCard) {
-            nearestCard.style.transform = '';
-            nearestCard.style.zIndex = nearestCard.dataset.originalZ || nearestCard.style.zIndex;
-            delete nearestCard.dataset.originalZ;
-            nearestCard = null;
-        }
-
-        searchDragStartTime = null;
-        activeSearchBtn = null;
-    });
-
-    // Card creation functionality with color wheel
-    const addCardBtn = document.getElementById('add-card-btn');
-    const modal = document.getElementById('card-modal');
-    const modalOk = document.getElementById('modal-ok');
-    const modalCancel = document.getElementById('modal-cancel');
-    const cardTypeInput = document.getElementById('card-type');
-    const colorWheel = document.getElementById('color-wheel');
-    const colorPreview = document.getElementById('color-preview');
-
-    let selectedColor = '#fff9c4'; // Default color
-
-    // Draw color wheel
-    function drawColorWheel() {
-        const ctx = colorWheel.getContext('2d');
-        const width = colorWheel.width;
-        const height = colorWheel.height;
-        const radius = width / 2;
-        const centerX = width / 2;
-        const centerY = height / 2;
-
-        // Draw color wheel
-        for (let angle = 0; angle < 360; angle++) {
-            const startAngle = (angle - 1) * Math.PI / 180;
-            const endAngle = angle * Math.PI / 180;
-
-            ctx.beginPath();
-            ctx.moveTo(centerX, centerY);
-            ctx.arc(centerX, centerY, radius, startAngle, endAngle);
-            ctx.closePath();
-
-            const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
-            const hue = angle;
-            gradient.addColorStop(0, '#ffffff');
-            gradient.addColorStop(0.7, `hsl(${hue}, 100%, 50%)`);
-            gradient.addColorStop(1, `hsl(${hue}, 100%, 25%)`);
-
-            ctx.fillStyle = gradient;
-            ctx.fill();
-        }
-    }
-
-    // Get color from wheel at click position
-    function getColorAtPosition(x, y) {
-        const rect = colorWheel.getBoundingClientRect();
-        const canvasX = x - rect.left;
-        const canvasY = y - rect.top;
-        const ctx = colorWheel.getContext('2d');
-        const imageData = ctx.getImageData(canvasX, canvasY, 1, 1).data;
-        return `rgb(${imageData[0]}, ${imageData[1]}, ${imageData[2]})`;
-    }
-
-    // Convert RGB to hex
-    function rgbToHex(rgb) {
-        const match = rgb.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
-        if (!match) return rgb;
-        const r = parseInt(match[1]);
-        const g = parseInt(match[2]);
-        const b = parseInt(match[3]);
-        return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
-    }
-
-    // Handle color wheel click
-    colorWheel.addEventListener('click', function(e) {
-        const color = getColorAtPosition(e.clientX, e.clientY);
-        selectedColor = rgbToHex(color);
-        colorPreview.style.backgroundColor = selectedColor;
-    });
-
-    addCardBtn.addEventListener('click', function() {
-        drawColorWheel();
-        modal.style.display = 'block';
-        cardTypeInput.value = '';
-        colorPreview.style.backgroundColor = selectedColor;
-        cardTypeInput.focus();
-    });
-
-    modalCancel.addEventListener('click', function() {
-        modal.style.display = 'none';
-    });
-
-    modalOk.addEventListener('click', function() {
-        const cardType = cardTypeInput.value.trim();
-
-        if (cardType === '') {
-            alert('Please enter a card type name');
-            return;
-        }
-
-        socket.emit('palette:add', {
-            type: cardType,
-            color: selectedColor
-        });
-
-        modal.style.display = 'none';
-    });
-
-    window.addEventListener('click', function(event) {
-        if (event.target === modal) {
-            modal.style.display = 'none';
-        }
-    });
-
-    cardTypeInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            modalOk.click();
-        }
-    });
-
-    // Drag and Drop functionality
-    const viewport = document.querySelector('.viewport');
-    let draggedViewportCard = null;
-    let offsetX = 0;
-    let offsetY = 0;
-
-    // Auto-zoom based on drag duration
-    const ZOOM_OUT_SPEED = 0.002; // zoom change per frame (very slow)
-    const ZOOM_DELAY_MS = 1500; // delay before auto-zoom starts (ms) - 1.5 seconds
-    const SNAP_TO_MOUSE_DELAY_MS = 100; // snap card to mouse center after this delay
-    const EDGE_DISTANCE_RATIO = 0.15; // Pan when within 15% of viewport from edge
-    const PAN_SPEED = 3; // pixels per frame when near edge
-    let dragStartTime = null;
-    let hasSnappedToMouse = false;
-
-    function handleDragZoomAndPan(mouseEvent) {
-        const viewport = document.querySelector('.viewport');
-        const viewportContent = document.querySelector('.viewport-content');
-        if (!viewport || !viewportContent) return;
-
-        const rect = viewport.getBoundingClientRect();
-
-        // Get current pan offset
-        let panX = 0, panY = 0;
-        const currentTransform = viewportContent.style.transform;
-        if (currentTransform && currentTransform.includes('translate')) {
-            const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
-            if (match) {
-                panX = parseFloat(match[1]);
-                panY = parseFloat(match[2]);
-            }
-        }
-
-        // Check if enough time has passed since drag started for zoom
-        const now = Date.now();
-        const shouldZoom = dragStartTime && (now - dragStartTime >= ZOOM_DELAY_MS);
-
-        // Zoom out while dragging (time-based, not edge-based)
-        // Zoom all the way to MIN_ZOOM (0.1)
-        if (shouldZoom && currentZoom > MIN_ZOOM) {
-            currentZoom = Math.max(MIN_ZOOM, currentZoom - ZOOM_OUT_SPEED);
-        }
-
-        // Calculate edge threshold based on viewport size (15% from edges)
-        const edgeThresholdX = rect.width * EDGE_DISTANCE_RATIO;
-        const edgeThresholdY = rect.height * EDGE_DISTANCE_RATIO;
-
-        // Check if mouse is near edge for panning
-        const mouseX = mouseEvent.clientX - rect.left;
-        const mouseY = mouseEvent.clientY - rect.top;
-        const distanceFromLeft = mouseX;
-        const distanceFromRight = rect.width - mouseX;
-        const distanceFromTop = mouseY;
-        const distanceFromBottom = rect.height - mouseY;
-
-        // Pan when near edges (move viewport to reveal more cards)
-        if (distanceFromLeft < edgeThresholdX) {
-            panX += PAN_SPEED;
-        }
-        if (distanceFromRight < edgeThresholdX) {
-            panX -= PAN_SPEED;
-        }
-        if (distanceFromTop < edgeThresholdY) {
-            panY += PAN_SPEED;
-        }
-        if (distanceFromBottom < edgeThresholdY) {
-            panY -= PAN_SPEED;
-        }
-
-        // Update transform
-        viewportContent.style.transform = `translate(${panX}px, ${panY}px) scale(${currentZoom})`;
-    }
-
-    viewport.addEventListener('dragover', function(e) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = draggedViewportCard ? 'move' : 'copy';
-        viewport.classList.add('drag-over');
-
-        // Move the card being dragged to follow the cursor
-        if (draggedViewportCard) {
-            // Update focal point to follow the mouse/card during drag FIRST
-            setFocalPointFromEvent(e);
-
-            const viewport = document.querySelector('.viewport');
-            const rect = viewport.getBoundingClientRect();
-            const viewportStyle = window.getComputedStyle(viewport);
-            const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-            const paddingTop = parseFloat(viewportStyle.paddingTop);
-
-            // Calculate viewport center
-            const viewportWidth = rect.width - paddingLeft * 2;
-            const viewportHeight = rect.height - paddingTop * 2;
-            const centerX = viewportWidth / 2;
-            const centerY = viewportHeight / 2;
-
-            // After a brief delay, snap card to center under mouse (eliminate initial offset)
-            const now = Date.now();
-            if (!hasSnappedToMouse && dragStartTime && (now - dragStartTime >= SNAP_TO_MOUSE_DELAY_MS)) {
-                // Reset offset to center the card under mouse
-                offsetX = 75; // Half of card width (150px / 2)
-                offsetY = 50; // Half of card height (100px / 2)
-                hasSnappedToMouse = true;
-            }
-
-            // Get mouse position in workspace
-            const mouseWorkspace = screenToWorkspaceNoPan(e.clientX, e.clientY);
-
-            // Calculate card position by subtracting the workspace offset
-            const cardWorkspaceX = mouseWorkspace.x - offsetX;
-            const cardWorkspaceY = mouseWorkspace.y - offsetY;
-
-            // Convert workspace to CSS coordinates
-            const cssX = cardWorkspaceX + centerX;
-            const cssY = cardWorkspaceY + centerY;
-
-            // Update card position
-            draggedViewportCard.style.left = cssX + 'px';
-            draggedViewportCard.style.top = cssY + 'px';
-
-            // Handle continuous zoom with focal point at mouse
-            handleDragZoomAndPan(e);
-        }
-    });
-
-    viewport.addEventListener('dragleave', function(e) {
-        if (e.target === viewport) {
-            viewport.classList.remove('drag-over');
-        }
-    });
-
-    // Card edit modal elements
-    const editModal = document.getElementById('edit-modal');
-    const editCloseBtn = document.getElementById('edit-close');
-    const editDeleteBtn = document.getElementById('edit-delete');
-    const editSaveBtn = document.getElementById('edit-save');
-    const editCardVisual = document.getElementById('edit-card-visual');
-    const editCardHeader = document.getElementById('edit-card-header');
-    const editCardBody = document.getElementById('edit-card-body');
-    let pendingCard = null;
-    // Convert screen coordinates to workspace coordinates
-    // Workspace origin is at the CENTER of the viewport (at initial zoom/pan)
-    function screenToWorkspace(screenX, screenY) {
-        const viewport = document.querySelector('.viewport');
-        const viewportContent = document.querySelector('.viewport-content');
-        const rect = viewport.getBoundingClientRect();
-        const viewportStyle = window.getComputedStyle(viewport);
-        const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-        const paddingTop = parseFloat(viewportStyle.paddingTop);
-
-        // Get current pan offset from viewport-content transform
-        let panX = 0, panY = 0;
-        if (viewportContent) {
-            const currentTransform = viewportContent.style.transform;
-            if (currentTransform && currentTransform.includes('translate')) {
-                const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
-                if (match) {
-                    panX = parseFloat(match[1]);
-                    panY = parseFloat(match[2]);
-                }
-            }
-        }
-
-        // Viewport center (accounting for padding)
-        const viewportWidth = rect.width - paddingLeft * 2;
-        const viewportHeight = rect.height - paddingTop * 2;
-        const centerX = viewportWidth / 2;
-        const centerY = viewportHeight / 2;
-
-        // Get position relative to viewport center, accounting for padding, pan, and zoom
-        // Transform: translate(panX, panY) scale(zoom)
-        // Screen position relative to viewport top-left = screen - viewport.left - padding
-        // Position relative to center = screen position - center
-        // Workspace = (screen - viewport - padding - center - panX) / zoom
-        const contentX = (screenX - rect.left - paddingLeft - centerX - panX) / currentZoom;
-        const contentY = (screenY - rect.top - paddingTop - centerY - panY) / currentZoom;
-
-        debugLog.info('screenToWorkspace', {
-            screenX,
-            screenY,
-            viewportRect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-            viewportCenter: { x: centerX, y: centerY },
-            padding: { left: paddingLeft, top: paddingTop },
-            pan: { x: panX, y: panY },
-            currentZoom,
-            result: { x: contentX, y: contentY }
-        });
-
-        return { x: contentX, y: contentY };
-    }
-
-    // Handle drop events (both new cards and moving existing cards)
-    viewport.addEventListener('drop', function(e) {
-        e.preventDefault();
-        viewport.classList.remove('drag-over');
-
-        // Get all transform info for debugging
-        const viewportContent = document.querySelector('.viewport-content');
-        const rect = viewport.getBoundingClientRect();
-        const viewportStyle = window.getComputedStyle(viewport);
-        const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-        const paddingTop = parseFloat(viewportStyle.paddingTop);
-
-        let currentPanX = 0, currentPanY = 0;
-        if (viewportContent) {
-            const currentTransform = viewportContent.style.transform;
-            if (currentTransform && currentTransform.includes('translate')) {
-                const match = currentTransform.match(/translate\(([^,]+)px,\s*([^)]+)px\)/);
-                if (match) {
-                    currentPanX = parseFloat(match[1]);
-                    currentPanY = parseFloat(match[2]);
-                }
-            }
-        }
-
-        // Update focal point to drop location
-        setFocalPointFromEvent(e);
-
-        debugLog.info('=== DROP EVENT ===', {
-            mouseScreen: { x: e.clientX, y: e.clientY },
-            viewportRect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-            padding: { left: paddingLeft, top: paddingTop },
-            currentZoom,
-            currentPan: { x: currentPanX, y: currentPanY },
-            isDraggingViewportCard: !!draggedViewportCard,
-            dragOffset: { x: offsetX, y: offsetY }
-        });
-
-        // If dropping a viewport card (moving it)
-        if (draggedViewportCard) {
-            // Get mouse position in workspace
-            const mouseWorkspace = screenToWorkspaceNoPan(e.clientX, e.clientY);
-
-            // Calculate card workspace position by subtracting the workspace offset
-            const cardWorkspaceX = mouseWorkspace.x - offsetX;
-            const cardWorkspaceY = mouseWorkspace.y - offsetY;
-
-            // Snap to grid
-            const snappedX = snapToGrid(cardWorkspaceX);
-            const snappedY = snapToGrid(cardWorkspaceY);
-
-            debugLog.info('Final drop position', {
-                mouseWorkspace,
-                offset: { x: offsetX, y: offsetY },
-                cardWorkspace: { x: cardWorkspaceX, y: cardWorkspaceY },
-                snappedWorkspace: { x: snappedX, y: snappedY }
-            });
-
-            // Show the log modal if not muted
-            const logModal = document.getElementById('log-modal');
-            if (logModal && !debugLog.muted) {
-                logModal.style.display = 'block';
-                debugLog.updateDisplay();
-            }
-
-            socket.emit('viewport:move', {
-                id: draggedViewportCard.dataset.id,
-                left: snappedX + 'px',
-                top: snappedY + 'px'
-            });
-            return;
-        }
-
-        // Otherwise it's a new card from palette
-        const dataStr = e.dataTransfer.getData('text/plain');
-        if (!dataStr) return;
-
-        const data = JSON.parse(dataStr);
-        // Use screenToWorkspaceNoPan to get true workspace position
-        const dropPos = screenToWorkspaceNoPan(e.clientX, e.clientY);
-
-        // Center the card under cursor (150px wide, 100px tall)
-        let x = dropPos.x - 75;
-        let y = dropPos.y - 50;
-
-        // Snap to grid
-        x = snapToGrid(x);
-        y = snapToGrid(y);
-
-        pendingCard = {
-            id: generateId(),
-            type: data.type,
-            color: data.color,
-            left: x + 'px',
-            top: y + 'px'
-        };
-
-        debugLog.info('Creating new card', {
-            dropPos,
-            centered: { x, y },
-            snapped: { x, y },
-            pendingCard
-        });
-
-        editCardHeader.textContent = '';
-        editCardBody.textContent = '';
-        editCardVisual.style.backgroundColor = data.color;
-        editCardVisual.style.color = getTextColorForBackground(data.color);
-        editModal.style.display = 'block';
-        editCardHeader.focus();
-    });
-
-    // Track drag start position for focal point
-    let dragStartPosition = null;
-
-    // Viewport card drag handlers
-    viewport.addEventListener('dragstart', function(e) {
-        if (e.target.classList.contains('viewport-card')) {
-            draggedViewportCard = e.target;
-
-            // Start the drag timer for auto-zoom delay
-            dragStartTime = Date.now();
-
-            // Calculate where on the card the user grabbed it (in workspace coordinates)
-            // Get the card's current workspace position
-            const viewport = document.querySelector('.viewport');
-            const rect = viewport.getBoundingClientRect();
-            const viewportStyle = window.getComputedStyle(viewport);
-            const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-            const paddingTop = parseFloat(viewportStyle.paddingTop);
-            const viewportWidth = rect.width - paddingLeft * 2;
-            const viewportHeight = rect.height - paddingTop * 2;
-            const centerX = viewportWidth / 2;
-            const centerY = viewportHeight / 2;
-
-            // Get card's CSS position
-            const cardLeft = parseFloat(e.target.style.left);
-            const cardTop = parseFloat(e.target.style.top);
-
-            // Convert card position from CSS to workspace
-            const cardWorkspaceX = cardLeft - centerX;
-            const cardWorkspaceY = cardTop - centerY;
-
-            // Get mouse position in workspace
-            const mouseWorkspace = screenToWorkspaceNoPan(e.clientX, e.clientY);
-
-            // Offset in workspace coordinates
-            offsetX = mouseWorkspace.x - cardWorkspaceX;
-            offsetY = mouseWorkspace.y - cardWorkspaceY;
-
-            // Store the starting position of the card for focal point during auto-zoom
-            dragStartPosition = {
-                x: e.clientX,
-                y: e.clientY
-            };
-
-            // Create custom drag ghost with gradient
-            const ghost = e.target.cloneNode(true);
-            ghost.classList.add('drag-ghost');
-            ghost.style.width = e.target.offsetWidth + 'px';
-            ghost.style.height = e.target.offsetHeight + 'px';
-            document.body.appendChild(ghost);
-
-            // Set the custom drag image at the grab point
-            e.dataTransfer.setDragImage(ghost, offsetX, offsetY);
-
-            // Clean up the ghost after a brief moment
-            setTimeout(() => {
-                if (ghost.parentNode) {
-                    ghost.parentNode.removeChild(ghost);
-                }
-            }, 0);
-
-            // Add dragging class to original card
-            e.target.classList.add('dragging');
-
-            // Set focal point to the card's starting position
-            setFocalPointFromEvent(e, e.target);
-        }
-    }, false);
-
-    viewport.addEventListener('dragend', function(e) {
-        if (e.target.classList.contains('viewport-card')) {
-            e.target.classList.remove('dragging');
-
-            // Reset snap flag for next drag
-            hasSnappedToMouse = false;
-
-            // If we were zoomed out during drag, zoom back in centered on the viewport
-            if (currentZoom < 1.0 && draggedViewportCard) {
-                const oldZoom = currentZoom;
-
-                // Get the card's workspace position (center-origin)
-                const cardLeft = parseFloat(draggedViewportCard.style.left);
-                const cardTop = parseFloat(draggedViewportCard.style.top);
-
-                // Convert from CSS (top-left origin) back to workspace coordinates
-                const viewport = document.querySelector('.viewport');
-                const rect = viewport.getBoundingClientRect();
-                const viewportStyle = window.getComputedStyle(viewport);
-                const paddingLeft = parseFloat(viewportStyle.paddingLeft);
-                const paddingTop = parseFloat(viewportStyle.paddingTop);
-                const viewportWidth = rect.width - paddingLeft * 2;
-                const viewportHeight = rect.height - paddingTop * 2;
-                const centerX = viewportWidth / 2;
-                const centerY = viewportHeight / 2;
-
-                // CSS to workspace: workspace = css - center
-                const workspaceX = cardLeft - centerX;
-                const workspaceY = cardTop - centerY;
-
-                // Card dimensions
-                const cardWidth = 150;
-                const cardHeight = draggedViewportCard.offsetHeight;
-
-                debugLog.info('Resetting zoom after drop', {
-                    cardCSS: { left: cardLeft, top: cardTop },
-                    cardWorkspace: { x: workspaceX, y: workspaceY },
-                    cardSize: { width: cardWidth, height: cardHeight },
-                    oldZoom: currentZoom
-                });
-
-                // Reset zoom to 1.0
-                currentZoom = 1.0;
-
-                // Calculate pan needed to center the card at viewport center
-                // At zoom=1, to show a workspace point at screen center, we need:
-                // pan = -(workspace position of card center)
-                const cardCenterWorkspaceX = workspaceX + cardWidth / 2;
-                const cardCenterWorkspaceY = workspaceY + cardHeight / 2;
-
-                const newPanX = -cardCenterWorkspaceX;
-                const newPanY = -cardCenterWorkspaceY;
-
-                // Set focal point to center
-                focalPoint.x = 0.5;
-                focalPoint.y = 0.5;
-
-                // Update transform
-                const viewportContent = document.querySelector('.viewport-content');
-                viewportContent.style.transform = `translate(${newPanX}px, ${newPanY}px) scale(${currentZoom})`;
-
-                debugLog.info('Zoom reset complete', {
-                    newZoom: currentZoom,
-                    newPan: { x: newPanX, y: newPanY },
-                    focalPoint: { ...focalPoint }
-                });
-            }
-
-            draggedViewportCard = null;
-            dragStartTime = null;
-        }
-    }, false);
-
-    // Viewport panning (click and drag to move view)
-    let isPanning = false;
-    let panStartX = 0;
-    let panStartY = 0;
-    let panOffsetX = 0;
-    let panOffsetY = 0;
-    let currentPanX = 0;
-    let currentPanY = 0;
-
-    viewport.addEventListener('mousedown', function(e) {
-        // Only pan if clicking directly on viewport or viewport-content (not on a card or wormhole)
-        const viewportContent = document.querySelector('.viewport-content');
-
-        // Don't pan if clicking on a wormhole or its children
-        if (e.target.closest('.wormhole-portal')) {
-            return;
-        }
-
-        if (e.target === viewport || e.target === viewportContent
-            || e.target.classList.contains('viewport') || e.target.classList.contains('viewport-content')
-            || (e.target.tagName === 'P' && e.target.parentElement === viewport)) {
-            isPanning = true;
-            panStartX = e.clientX;
-            panStartY = e.clientY;
-            panOffsetX = currentPanX;
-            panOffsetY = currentPanY;
-            viewport.style.cursor = 'grabbing';
-            e.preventDefault();
-        }
-    });
-
-    viewport.addEventListener('mousemove', function(e) {
-        if (!isPanning) return;
-
-        const dx = e.clientX - panStartX;
-        const dy = e.clientY - panStartY;
-
-        currentPanX = panOffsetX + dx;
-        currentPanY = panOffsetY + dy;
-
-        // Update viewport-content transform to include both pan and scale
-        const viewportContent = document.querySelector('.viewport-content');
-        if (viewportContent) {
-            const originX = focalPoint.x * 100;
-            const originY = focalPoint.y * 100;
-            viewportContent.style.transform = `translate(${currentPanX}px, ${currentPanY}px) scale(${currentZoom})`;
-            viewportContent.style.transformOrigin = `${originX}% ${originY}%`;
-        }
-    });
-
-    viewport.addEventListener('mouseup', function(e) {
-        if (isPanning) {
-            isPanning = false;
-            viewport.style.cursor = '';
-        }
-    });
-
-    viewport.addEventListener('mouseleave', function(e) {
-        if (isPanning) {
-            isPanning = false;
-            viewport.style.cursor = '';
-        }
-    });
-
-    // Handle Enter key in header - move to body
-    editCardHeader.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            editCardBody.focus();
-            // Move cursor to start of body
-            const range = document.createRange();
-            const sel = window.getSelection();
-            range.setStart(editCardBody, 0);
-            range.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(range);
-        }
-    });
-
-    // Handle triple Enter in body - close and save
-    let enterCount = 0;
-    let lastEnterTime = 0;
-    editCardBody.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') {
-            const now = Date.now();
-            if (now - lastEnterTime < 500) {
-                enterCount++;
-            } else {
-                enterCount = 1;
-            }
-            lastEnterTime = now;
-
-            if (enterCount >= 3) {
-                e.preventDefault();
-                saveAndCloseEditModal();
-                enterCount = 0;
-            }
-        } else {
-            enterCount = 0;
-        }
-    });
-
-    // Close button handler (cancel without saving)
-    editCloseBtn.addEventListener('click', function() {
-        editModal.style.display = 'none';
-        pendingCard = null;
-        editModal.dataset.editingCardId = '';
-        enterCount = 0;
-    });
-
-    // Delete button handler
-    editDeleteBtn.addEventListener('click', function() {
-        const editingCardId = editModal.dataset.editingCardId;
-
-        // Only allow deleting existing cards, not new ones
-        if (editingCardId && confirm('Delete this card?')) {
-            socket.emit('viewport:delete', { id: editingCardId });
-            editModal.style.display = 'none';
-            editModal.dataset.editingCardId = '';
-            pendingCard = null;
-            enterCount = 0;
-        }
-    });
-
-    // Save button handler (save and close)
-    editSaveBtn.addEventListener('click', function() {
-        saveAndCloseEditModal();
-    });
-
-    // Save and close function
-    function saveAndCloseEditModal() {
-        const editingCardId = editModal.dataset.editingCardId;
-        const header = editCardHeader.textContent.trim();
-
-        // Extract body text preserving line breaks
-        // contenteditable creates <div> or <br> for line breaks
-        const body = editCardBody.innerHTML
-            .replace(/<div><br><\/div>/g, '\n')  // Empty lines
-            .replace(/<div>/g, '\n')              // Line breaks
-            .replace(/<br\s*\/?>/g, '\n')         // <br> tags
-            .replace(/<[^>]+>/g, '')              // Remove all other HTML tags
-            .replace(/&nbsp;/g, ' ')              // Replace &nbsp; with space
-            .replace(/&amp;/g, '&')               // Decode &amp;
-            .replace(/&lt;/g, '<')                // Decode &lt;
-            .replace(/&gt;/g, '>')                // Decode &gt;
-            .trim();
-
-        if (editingCardId) {
-            // Editing existing card
-            debugLog.info('Emitting viewport:update', {
-                id: editingCardId,
-                header,
-                body
-            });
-
-            socket.emit('viewport:update', {
-                id: editingCardId,
-                header: header,
-                body: body
-            });
-            editModal.dataset.editingCardId = '';
-        } else if (pendingCard) {
-            // Creating new card
-            const cardData = {
-                id: pendingCard.id,
-                header: header || pendingCard.type,
-                body: body,
-                color: pendingCard.color,
-                left: pendingCard.left,
-                top: pendingCard.top,
-                authorInitials: currentUserInitials
-            };
-
-            debugLog.info('Emitting viewport:add', cardData);
-
-            // Show the log modal if not muted
-            const logModal = document.getElementById('log-modal');
-            if (logModal && !debugLog.muted) {
-                logModal.style.display = 'block';
-                debugLog.updateDisplay();
-            }
-
-            socket.emit('viewport:add', cardData);
-            pendingCard = null;
-        }
-
-        editModal.style.display = 'none';
-        enterCount = 0;
-    }
-
-    // Click outside modal to close
-    window.addEventListener('click', function(event) {
-        if (event.target === editModal) {
-            editModal.style.display = 'none';
-            editModal.dataset.editingCardId = '';
-            pendingCard = null;
-            enterCount = 0;
-        }
-    });
+    debugLog.info('CardStorming initialization complete');
 });
