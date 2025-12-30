@@ -1252,16 +1252,31 @@ function setupPaletteCards() {
 }
 
 function setupPaletteDropZone() {
+    const viewport = document.querySelector('.viewport');
     const viewportContent = document.querySelector('.viewport-content');
 
-    // Handle drop on viewport
-    viewportContent.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-    });
+    if (!viewport || !viewportContent) {
+        debugLog.error('Viewport elements not found for drop zone setup');
+        return;
+    }
 
-    viewportContent.addEventListener('drop', (e) => {
+    // Handle dragover on both viewport and viewport-content
+    const handleDragOver = (e) => {
+        // Check if we're dragging from palette
+        if (e.dataTransfer.types.includes('application/json')) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            debugLog.info('Drag over viewport', { x: e.clientX, y: e.clientY });
+        }
+    };
+
+    viewport.addEventListener('dragover', handleDragOver);
+    viewportContent.addEventListener('dragover', handleDragOver);
+
+    // Handle drop
+    const handleDrop = (e) => {
         e.preventDefault();
+        e.stopPropagation();
 
         debugLog.info('Drop event on viewport', {
             clientX: e.clientX,
@@ -1325,6 +1340,14 @@ function setupPaletteDropZone() {
         } catch (err) {
             debugLog.error('Failed to create card from palette', err);
         }
+    };
+
+    viewport.addEventListener('drop', handleDrop);
+    viewportContent.addEventListener('drop', handleDrop);
+
+    debugLog.info('Palette drop zone setup complete', {
+        viewport: !!viewport,
+        viewportContent: !!viewportContent
     });
 }
 
