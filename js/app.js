@@ -44,10 +44,20 @@ function generateProjectId() {
 }
 
 function getProjectIdFromURL() {
-    return window.location.hash.substring(1) || null;
+    const hash = window.location.hash.substring(1);
+    // Return null if hash is empty, "null", or "undefined"
+    if (!hash || hash === 'null' || hash === 'undefined') {
+        return null;
+    }
+    return hash;
 }
 
 function setProjectIdInURL(projectId) {
+    if (!projectId || projectId === 'null' || projectId === 'undefined') {
+        debugLog.warn('Attempted to set invalid project ID in URL', { projectId });
+        window.location.hash = '';
+        return;
+    }
     debugLog.info('Setting project ID in URL', { projectId, currentHash: window.location.hash });
     window.location.hash = projectId;
     debugLog.info('URL hash after setting', { hash: window.location.hash });
@@ -76,6 +86,66 @@ function removeKnownProject(projectId) {
     const known = getKnownProjects();
     delete known[projectId];
     localStorage.setItem('knownProjects', JSON.stringify(known));
+}
+
+async function cleanupInvalidProjects() {
+    const known = getKnownProjects();
+    let cleaned = false;
+
+    // Remove ONLY the invalid project IDs (null, undefined, empty string)
+    ['null', 'undefined', ''].forEach(invalidId => {
+        if (invalidId in known) {
+            delete known[invalidId];
+            cleaned = true;
+            debugLog.info('Removed invalid project from localStorage', { invalidId });
+        }
+    });
+
+    // Also clean up user identities for invalid project IDs
+    ['null', 'undefined', ''].forEach(invalidId => {
+        const key = `userIdentity_${invalidId}`;
+        if (localStorage.getItem(key)) {
+            localStorage.removeItem(key);
+            cleaned = true;
+            debugLog.info('Removed invalid user identity from localStorage', { key });
+        }
+    });
+
+    if (cleaned) {
+        localStorage.setItem('knownProjects', JSON.stringify(known));
+        debugLog.info('Cleaned up invalid projects from localStorage');
+    }
+
+    // Restore project list from server
+    try {
+        const response = await fetch('/api/projects');
+        const data = await response.json();
+
+        if (data.success && data.projects) {
+            const known = getKnownProjects();
+            let restored = 0;
+
+            data.projects.forEach(project => {
+                // Skip invalid IDs
+                if (!project.id || project.id === 'null' || project.id === 'undefined' || project.id === '') {
+                    return;
+                }
+
+                // Only restore if not already in localStorage
+                if (!known[project.id]) {
+                    known[project.id] = project.name;
+                    restored++;
+                }
+            });
+
+            if (restored > 0) {
+                localStorage.setItem('knownProjects', JSON.stringify(known));
+                debugLog.info(`Restored ${restored} projects from server`, { total: data.projects.length });
+            }
+        }
+    } catch (err) {
+        debugLog.error('Failed to restore projects from server', err);
+    }
 }
 
 function getUserIdentity(projectId) {
@@ -137,6 +207,12 @@ function migrateProjectData(serverState) {
 // ============================================================================
 
 function openProject(projectId) {
+    if (!projectId || projectId === 'null' || projectId === 'undefined') {
+        debugLog.error('Attempted to open project with invalid ID', { projectId });
+        closeProject();
+        return;
+    }
+
     debugLog.info('Opening project', { projectId });
 
     currentProjectId = projectId;
@@ -149,9 +225,13 @@ function openProject(projectId) {
     const knownProjects = getKnownProjects();
     const projectNameEl = document.getElementById('project-name');
     if (knownProjects[projectId] && projectNameEl) {
-        projectNameEl.value = knownProjects[projectId];
-        appState.projectName = knownProjects[projectId];
-        debugLog.info('Set project name from localStorage', { name: knownProjects[projectId] });
+        // Handle both string and object formats
+        const projectData = knownProjects[projectId];
+        const projectName = typeof projectData === 'string' ? projectData : projectData.name;
+
+        projectNameEl.value = projectName;
+        appState.projectName = projectName;
+        debugLog.info('Set project name from localStorage', { name: projectName });
     }
 
     // Tell server to join this project room
@@ -322,7 +402,10 @@ function populateOpenSubmenu() {
 
     openSubmenu.innerHTML = '';
     projectIds.forEach(projectId => {
-        const projectName = knownProjects[projectId];
+        const projectData = knownProjects[projectId];
+        // Handle both string and object formats
+        const projectName = typeof projectData === 'string' ? projectData : projectData.name;
+
         const link = document.createElement('a');
         link.href = '#';
         link.textContent = projectName;
@@ -584,7 +667,7 @@ function setupToolbarButtons() {
         });
     }
 
-    // Add Card button
+    // Add Card button - opens modal to create palette card
     const addCardBtn = document.getElementById('add-card-btn');
     if (addCardBtn) {
         addCardBtn.addEventListener('click', (e) => {
@@ -595,30 +678,15 @@ function setupToolbarButtons() {
                 return;
             }
 
-            // Create card at center of current view
-            const cardId = 'card-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
-            const card = new Card(
-                0, // Center x
-                0, // Center y
-                cardId,
-                'New Card',
-                '',
-                '#fff9c4', // Light yellow
-                currentUserInitials,
-                1
-            );
+            // Show the card creation modal
+            const modal = document.getElementById('card-modal');
+            const cardTypeInput = document.getElementById('card-type');
 
-            const viewportContent = document.querySelector('.viewport-content');
-            viewportContent.appendChild(card.render(viewportManager));
-            appState.addCard(card);
-            setupCardDragHandlers(card);
-
-            // Emit to server
-            if (socket) {
-                socket.emit('viewport:add', card.serialize());
+            if (modal && cardTypeInput) {
+                cardTypeInput.value = '';
+                modal.style.display = 'flex';
+                cardTypeInput.focus();
             }
-
-            debugLog.info('Card created via +Card button', { id: cardId });
         });
     }
 }
@@ -722,10 +790,178 @@ function setupEditModal() {
 }
 
 // ============================================================================
+// CARD CREATION MODAL
+// ============================================================================
+
+function setupCardCreationModal() {
+    const modal = document.getElementById('card-modal');
+    const cardTypeInput = document.getElementById('card-type');
+    const colorWheel = document.getElementById('color-wheel');
+    const colorPreview = document.getElementById('color-preview');
+    const modalOk = document.getElementById('modal-ok');
+    const modalCancel = document.getElementById('modal-cancel');
+
+    let selectedColor = '#ff6b6b'; // Default red
+
+    // Draw color wheel
+    if (colorWheel) {
+        const ctx = colorWheel.getContext('2d');
+        const centerX = colorWheel.width / 2;
+        const centerY = colorWheel.height / 2;
+        const radius = centerX - 10;
+
+        // Draw rainbow circle
+        for (let angle = 0; angle < 360; angle++) {
+            const startAngle = (angle - 90) * Math.PI / 180;
+            const endAngle = (angle - 89) * Math.PI / 180;
+
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+            ctx.closePath();
+            ctx.fillStyle = `hsl(${angle}, 100%, 50%)`;
+            ctx.fill();
+        }
+
+        // Add click handler to select color
+        colorWheel.addEventListener('click', (e) => {
+            const rect = colorWheel.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            const dx = x - centerX;
+            const dy = y - centerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance <= radius) {
+                const angle = (Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360;
+                selectedColor = `hsl(${angle}, 100%, 50%)`;
+
+                // Convert HSL to hex for storage
+                const tempDiv = document.createElement('div');
+                tempDiv.style.color = selectedColor;
+                document.body.appendChild(tempDiv);
+                const computedColor = getComputedStyle(tempDiv).color;
+                document.body.removeChild(tempDiv);
+
+                // Parse rgb(r, g, b) to hex
+                const rgb = computedColor.match(/\d+/g);
+                if (rgb) {
+                    selectedColor = '#' + rgb.map(x => {
+                        const hex = parseInt(x).toString(16);
+                        return hex.length === 1 ? '0' + hex : hex;
+                    }).join('');
+                }
+
+                if (colorPreview) {
+                    colorPreview.style.backgroundColor = selectedColor;
+                }
+            }
+        });
+
+        // Set initial preview color
+        if (colorPreview) {
+            colorPreview.style.backgroundColor = selectedColor;
+        }
+    }
+
+    // OK button - create palette card
+    if (modalOk) {
+        modalOk.addEventListener('click', () => {
+            const cardType = cardTypeInput.value.trim();
+
+            if (!cardType) {
+                alert('Please enter a card type name');
+                return;
+            }
+
+            // Create palette card
+            const paletteCard = {
+                type: cardType,
+                color: selectedColor
+            };
+
+            // Add to server state
+            if (socket) {
+                socket.emit('palette:add', paletteCard);
+            }
+
+            // Add to local state and render
+            appState.paletteCards = appState.paletteCards || [];
+            appState.paletteCards.push(paletteCard);
+            renderPaletteCards();
+
+            // Close modal
+            modal.style.display = 'none';
+            cardTypeInput.value = '';
+
+            debugLog.info('Palette card created', paletteCard);
+        });
+    }
+
+    // Cancel button
+    if (modalCancel) {
+        modalCancel.addEventListener('click', () => {
+            modal.style.display = 'none';
+            cardTypeInput.value = '';
+        });
+    }
+
+    // Close on outside click
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.style.display = 'none';
+            cardTypeInput.value = '';
+        }
+    });
+
+    // Enter key to submit
+    if (cardTypeInput) {
+        cardTypeInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                modalOk.click();
+            }
+        });
+    }
+}
+
+// ============================================================================
+// PALETTE RENDERING
+// ============================================================================
+
+function renderPaletteCards() {
+    const cardList = document.getElementById('card-list');
+    if (!cardList) return;
+
+    // Clear existing palette cards
+    cardList.innerHTML = '';
+
+    // Render each palette card
+    const paletteCards = appState.paletteCards || [];
+    paletteCards.forEach(paletteCard => {
+        const cardEl = document.createElement('div');
+        cardEl.className = 'palette-card';
+        cardEl.draggable = true;
+        cardEl.dataset.cardType = paletteCard.type;
+        cardEl.dataset.cardColor = paletteCard.color;
+        cardEl.style.backgroundColor = paletteCard.color;
+        cardEl.textContent = paletteCard.type;
+
+        cardList.appendChild(cardEl);
+    });
+
+    // Re-setup drag handlers for new palette cards
+    setupPaletteCards();
+}
+
+// ============================================================================
 // SOCKET.IO HANDLERS
 // ============================================================================
 
 function setupSocketHandlers() {
+    let lastStateInitTime = 0;
+    const STATE_INIT_DEBOUNCE_MS = 1000; // Ignore duplicate state:init within 1 second
+
     socket.on('state:init', (serverState) => {
         debugLog.info('Received state:init from server', serverState);
 
@@ -738,6 +974,16 @@ function setupSocketHandlers() {
             debugLog.info('Ignoring state:init - no project is open');
             return;
         }
+
+        // Ignore duplicate state:init events within the debounce window
+        const now = Date.now();
+        if (now - lastStateInitTime < STATE_INIT_DEBOUNCE_MS) {
+            debugLog.info('Ignoring duplicate state:init (debounced)', {
+                timeSinceLastInit: now - lastStateInitTime
+            });
+            return;
+        }
+        lastStateInitTime = now;
 
         // Clear existing state
         appState.clearAll();
@@ -802,9 +1048,16 @@ function setupSocketHandlers() {
             });
         }
 
+        // Load palette cards
+        if (serverState.paletteCards) {
+            appState.paletteCards = serverState.paletteCards;
+            renderPaletteCards();
+        }
+
         debugLog.info('State loaded', {
             cards: appState.cards.size,
-            wormholes: appState.wormholes.size
+            wormholes: appState.wormholes.size,
+            paletteCards: serverState.paletteCards ? serverState.paletteCards.length : 0
         });
     });
 
@@ -881,6 +1134,22 @@ function setupSocketHandlers() {
         const card = appState.getCard(data.id);
         if (card) {
             card.updateContent(data.header, data.body);
+        }
+    });
+
+    // Palette card added by another user
+    socket.on('palette:add', (paletteCard) => {
+        appState.paletteCards = appState.paletteCards || [];
+
+        // Check if palette card already exists
+        const exists = appState.paletteCards.some(pc =>
+            pc.type === paletteCard.type && pc.color === paletteCard.color
+        );
+
+        if (!exists) {
+            appState.paletteCards.push(paletteCard);
+            renderPaletteCards();
+            debugLog.info('Palette card added from another user', paletteCard);
         }
     });
 }
@@ -1015,8 +1284,11 @@ function setupPaletteCards() {
 // MAIN INITIALIZATION
 // ============================================================================
 
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
     debugLog.info('DOM loaded, initializing CardStorming');
+
+    // Clean up any invalid project IDs and restore from server
+    await cleanupInvalidProjects();
 
     // Initialize viewport manager
     const viewport = document.querySelector('.viewport');
@@ -1037,6 +1309,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setupPaletteCards();
     setupViewportDrag();
     setupEditModal();
+    setupCardCreationModal();
     setupSocketHandlers();
 
     // Wait for socket to connect before opening project
