@@ -146,10 +146,15 @@ function openProject(projectId) {
     const userIdentity = getUserIdentity(projectId);
     if (userIdentity) {
         currentUserInitials = userIdentity.initials;
-        socket.emit('register', {
+        socket.emit('user:register', {
             initials: userIdentity.initials,
             name: userIdentity.name,
             projectId: projectId
+        }, (response) => {
+            if (!response.success) {
+                debugLog.error('Failed to register returning user', response);
+                showIdentityModal(projectId);
+            }
         });
     } else {
         showIdentityModal(projectId);
@@ -180,27 +185,40 @@ function closeProject() {
 }
 
 function showIdentityModal(projectId) {
-    const modal = document.getElementById('identity-modal');
-    const initialsInput = document.getElementById('identity-initials');
-    const nameInput = document.getElementById('identity-name');
-    const joinBtn = document.getElementById('identity-join');
+    // Simple prompt-based identity collection (TODO: Add proper modal UI)
+    const name = prompt('Enter your name:');
+    if (!name) {
+        // User cancelled - close project
+        closeProject();
+        return;
+    }
 
-    modal.style.display = 'block';
-    initialsInput.value = '';
-    nameInput.value = '';
-    initialsInput.focus();
+    const initials = prompt('Enter your initials (2-3 characters):');
+    if (!initials) {
+        // User cancelled - close project
+        closeProject();
+        return;
+    }
 
-    joinBtn.onclick = function() {
-        const initials = initialsInput.value.trim().toUpperCase();
-        const name = nameInput.value.trim();
+    const normalizedInitials = initials.trim().toUpperCase();
+    const normalizedName = name.trim();
 
-        if (initials && name) {
-            currentUserInitials = initials;
-            saveUserIdentity(projectId, initials, name);
-            socket.emit('register', { initials, name, projectId });
-            modal.style.display = 'none';
-        }
-    };
+    if (normalizedInitials && normalizedName) {
+        currentUserInitials = normalizedInitials;
+        saveUserIdentity(projectId, normalizedInitials, normalizedName);
+        socket.emit('user:register', {
+            initials: normalizedInitials,
+            name: normalizedName,
+            projectId: projectId
+        }, (response) => {
+            if (!response.success) {
+                alert('Failed to register: ' + response.message);
+                closeProject();
+            }
+        });
+    } else {
+        closeProject();
+    }
 }
 
 // ============================================================================
