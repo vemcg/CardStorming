@@ -48,7 +48,9 @@ function getProjectIdFromURL() {
 }
 
 function setProjectIdInURL(projectId) {
+    debugLog.info('Setting project ID in URL', { projectId, currentHash: window.location.hash });
     window.location.hash = projectId;
+    debugLog.info('URL hash after setting', { hash: window.location.hash });
 }
 
 function generateId() {
@@ -145,7 +147,13 @@ function openProject(projectId) {
 
     // Tell server to join this project room
     if (socket && socket.connected) {
+        debugLog.info('Emitting project:join', { projectId, socketConnected: socket.connected });
         socket.emit('project:join', { projectId });
+    } else {
+        debugLog.warn('Cannot emit project:join - socket not connected', {
+            hasSocket: !!socket,
+            connected: socket ? socket.connected : false
+        });
     }
 
     const userIdentity = getUserIdentity(projectId);
@@ -634,6 +642,16 @@ function setupSocketHandlers() {
 
         // Migrate old format if needed
         serverState = migrateProjectData(serverState);
+
+        // If we don't have a currentProjectId but the server sent us state,
+        // it means we're connected to the 'default' project
+        if (!currentProjectId) {
+            currentProjectId = 'default';
+            isProjectOpen = true;
+            appState.projectId = 'default';
+            setProjectIdInURL('default');
+            debugLog.info('Adopting default project from server', { projectId: 'default' });
+        }
 
         // Clear existing state
         appState.clearAll();
