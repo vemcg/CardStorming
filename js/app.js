@@ -950,8 +950,7 @@ function renderPaletteCards() {
         cardList.appendChild(cardEl);
     });
 
-    // Re-setup drag handlers for new palette cards
-    setupPaletteCards();
+    debugLog.info('Rendered palette cards', { count: paletteCards.length });
 }
 
 // ============================================================================
@@ -1221,25 +1220,34 @@ function setupWormholeDragHandlers(wormhole) {
 // ============================================================================
 
 function setupPaletteCards() {
-    const paletteCards = document.querySelectorAll('.palette-card');
+    const cardList = document.getElementById('card-list');
+    if (!cardList) {
+        debugLog.warn('card-list element not found');
+        return;
+    }
 
-    paletteCards.forEach(paletteCard => {
-        paletteCard.addEventListener('dragstart', (e) => {
-            e.dataTransfer.effectAllowed = 'copy';
-            e.dataTransfer.setData('application/json', JSON.stringify({
-                type: paletteCard.dataset.cardType,
-                color: paletteCard.dataset.cardColor
-            }));
-            paletteCard.classList.add('dragging');
-            debugLog.info('Palette card drag started', {
-                type: paletteCard.dataset.cardType,
-                color: paletteCard.dataset.cardColor
-            });
-        });
+    // Use event delegation on the card-list container
+    cardList.addEventListener('dragstart', (e) => {
+        const paletteCard = e.target.closest('.palette-card');
+        if (!paletteCard) return;
 
-        paletteCard.addEventListener('dragend', (e) => {
-            paletteCard.classList.remove('dragging');
-        });
+        e.dataTransfer.effectAllowed = 'copy';
+        const data = {
+            type: paletteCard.dataset.cardType,
+            color: paletteCard.dataset.cardColor
+        };
+        e.dataTransfer.setData('application/json', JSON.stringify(data));
+        paletteCard.classList.add('dragging');
+
+        debugLog.info('Palette card drag started', data);
+    });
+
+    cardList.addEventListener('dragend', (e) => {
+        const paletteCard = e.target.closest('.palette-card');
+        if (!paletteCard) return;
+
+        paletteCard.classList.remove('dragging');
+        debugLog.info('Palette card drag ended');
     });
 }
 

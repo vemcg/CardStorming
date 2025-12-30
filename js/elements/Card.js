@@ -39,9 +39,11 @@ export class Card extends DraggableElement {
         card.style.overflow = 'hidden';
         card.style.wordWrap = 'break-word';
 
-        // Pink header line at 20px
+        // Opaque background color fills entire card
+        card.style.backgroundColor = this.color;
+
+        // Pink header line at 20px and blue ruled lines as overlay
         card.style.background = `
-            linear-gradient(to right, ${this.color} 0%, ${this.color} 100%),
             linear-gradient(to right, #FFB6C1 0%, #FFB6C1 100%),
             repeating-linear-gradient(
                 to bottom,
@@ -49,11 +51,12 @@ export class Card extends DraggableElement {
                 transparent 19px,
                 #87CEEB 19px,
                 #87CEEB 20px
-            )
+            ),
+            ${this.color}
         `;
-        card.style.backgroundPosition = '0 0, 0 20px, 0 20px';
-        card.style.backgroundSize = '100% 20px, 100% 1px, 100% 20px';
-        card.style.backgroundRepeat = 'no-repeat, no-repeat, repeat';
+        card.style.backgroundPosition = '0 20px, 0 20px, 0 0';
+        card.style.backgroundSize = '100% 1px, 100% 20px, 100% 100%';
+        card.style.backgroundRepeat = 'no-repeat, repeat, no-repeat';
 
         // Header text
         const headerDiv = document.createElement('div');
