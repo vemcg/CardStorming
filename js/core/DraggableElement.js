@@ -75,15 +75,20 @@ export class DraggableElement {
         this.dragStartY = e.clientY;
         this.hasMoved = false;
 
-        // Calculate offset from element center to mouse
-        if (this.element) {
-            const rect = this.element.getBoundingClientRect();
-            const centerX = rect.left + rect.width / 2;
-            const centerY = rect.top + rect.height / 2;
-            this.dragOffsetX = e.clientX - centerX;
-            this.dragOffsetY = e.clientY - centerY;
+        // Store the initial mouse position in workspace coordinates
+        // This allows us to maintain the grab point offset throughout the drag
+        const initialWorkspacePos = CoordinateSystem.screenToWorkspaceNoPan(
+            e.clientX,
+            e.clientY,
+            viewportManager.viewport,
+            viewportManager.currentZoom
+        );
 
-            // Visual feedback
+        this.dragOffsetX = this.x - initialWorkspacePos.x;
+        this.dragOffsetY = this.y - initialWorkspacePos.y;
+
+        // Visual feedback
+        if (this.element) {
             this.element.style.opacity = '0.7';
             this.element.style.zIndex = '1000';
         }
@@ -119,14 +124,14 @@ export class DraggableElement {
 
         // Update position to follow mouse (no pan offset)
         const workspacePos = CoordinateSystem.screenToWorkspaceNoPan(
-            e.clientX - this.dragOffsetX,
-            e.clientY - this.dragOffsetY,
+            e.clientX,
+            e.clientY,
             viewportManager.viewport,
             viewportManager.currentZoom
         );
 
-        this.x = workspacePos.x;
-        this.y = workspacePos.y;
+        this.x = workspacePos.x + this.dragOffsetX;
+        this.y = workspacePos.y + this.dragOffsetY;
         this.updatePosition(viewportManager);
 
         // Auto-pan near edges
