@@ -791,9 +791,24 @@ body {
     background-color: #da190b;
 }
 
+/* Edit Modal - override default modal styles */
+#edit-modal {
+    background-color: transparent; /* No dark overlay */
+    pointer-events: none; /* Allow clicking through modal background */
+}
+
+#edit-modal .modal-content {
+    pointer-events: all; /* Re-enable clicking on the actual content */
+    margin: 0; /* Remove default centering margin */
+    padding: 0; /* Remove default padding */
+    border: none;
+    background: transparent;
+    width: auto; /* Don't constrain width */
+}
+
 /* Edit Card Visual Styling */
 .edit-card-container {
-    width: 200px;
+    width: 150px;
     padding: 0;
     position: relative;
     background: transparent;
