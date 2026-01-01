@@ -422,6 +422,8 @@ function setupMenuHandlers() {
     const newMenuItem = document.getElementById('menu-new');
     const openMenuItem = document.getElementById('menu-open');
     const closeMenuItem = document.getElementById('menu-close');
+    const deleteCardsMenuItem = document.getElementById('menu-delete-cards');
+    const deletePaletteMenuItem = document.getElementById('menu-delete-palette');
     const deleteProjectMenuItem = document.getElementById('menu-delete-project');
     const showLogMenuItem = document.getElementById('menu-show-log');
     const logModal = document.getElementById('log-modal');
@@ -447,6 +449,56 @@ function setupMenuHandlers() {
             e.preventDefault();
             if (isProjectOpen && confirm('Close the current project?')) {
                 closeProject();
+            }
+        });
+    }
+
+    if (deleteCardsMenuItem) {
+        deleteCardsMenuItem.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (!isProjectOpen) {
+                alert('No project is open');
+                return;
+            }
+            if (confirm('Delete all cards in this project? This cannot be undone.')) {
+                // Delete all cards from local state
+                const cardIds = Array.from(appState.cards.keys());
+                cardIds.forEach(cardId => {
+                    const card = appState.getCard(cardId);
+                    if (card && card.element) {
+                        card.element.remove();
+                    }
+                    appState.cards.delete(cardId);
+                });
+
+                // Emit to server to delete all cards
+                if (socket) {
+                    socket.emit('cards:delete-all', { projectId: currentProjectId });
+                }
+
+                debugLog.info('Deleted all cards', { count: cardIds.length });
+            }
+        });
+    }
+
+    if (deletePaletteMenuItem) {
+        deletePaletteMenuItem.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (!isProjectOpen) {
+                alert('No project is open');
+                return;
+            }
+            if (confirm('Delete all palette cards? This cannot be undone.')) {
+                // Clear local palette
+                appState.paletteCards = [];
+                renderPaletteCards();
+
+                // Emit to server
+                if (socket) {
+                    socket.emit('palette:delete-all', { projectId: currentProjectId });
+                }
+
+                debugLog.info('Deleted all palette cards');
             }
         });
     }
@@ -1213,6 +1265,28 @@ function setupSocketHandlers() {
             renderPaletteCards();
             debugLog.info('Palette card added from another user', paletteCard);
         }
+    });
+
+    // All cards deleted
+    socket.on('cards:delete-all', () => {
+        // Remove all cards from DOM
+        appState.cards.forEach(card => {
+            if (card.element) {
+                card.element.remove();
+            }
+        });
+
+        // Clear cards map
+        appState.cards.clear();
+
+        debugLog.info('All cards deleted by another user');
+    });
+
+    // All palette cards deleted
+    socket.on('palette:delete-all', () => {
+        appState.paletteCards = [];
+        renderPaletteCards();
+        debugLog.info('All palette cards deleted by another user');
     });
 }
 

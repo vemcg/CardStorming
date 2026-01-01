@@ -441,7 +441,25 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Handle clear palette
+    // Handle delete all cards
+    socket.on('cards:delete-all', () => {
+        const project = getProject(projectId);
+        project.cards = [];
+        markProjectDirty(projectId);
+        io.to(projectId).emit('cards:delete-all');
+        console.log(`All cards deleted from project ${projectId}`);
+    });
+
+    // Handle delete all palette cards
+    socket.on('palette:delete-all', () => {
+        const project = getProject(projectId);
+        project.paletteCards = [];
+        markProjectDirty(projectId);
+        io.to(projectId).emit('palette:delete-all');
+        console.log(`All palette cards deleted from project ${projectId}`);
+    });
+
+    // Handle clear palette (legacy - keeping for compatibility)
     socket.on('palette:clear', () => {
         const project = getProject(projectId);
         project.paletteCards = [];
