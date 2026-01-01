@@ -446,6 +446,7 @@ io.on('connection', (socket) => {
         const project = getProject(projectId);
         project.cards = [];
         markProjectDirty(projectId);
+        saveProjectToDisk(projectId); // Immediate save for delete operations
         io.to(projectId).emit('cards:delete-all');
         console.log(`All cards deleted from project ${projectId}`);
     });
@@ -455,6 +456,7 @@ io.on('connection', (socket) => {
         const project = getProject(projectId);
         project.paletteCards = [];
         markProjectDirty(projectId);
+        saveProjectToDisk(projectId); // Immediate save for delete operations
         io.to(projectId).emit('palette:delete-all');
         console.log(`All palette cards deleted from project ${projectId}`);
     });
