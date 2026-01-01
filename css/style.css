@@ -816,15 +816,16 @@ body {
 
 .edit-close-btn {
     position: absolute;
-    top: 2px;
-    right: 2px;
-    background: none;
-    border: none;
-    font-size: 16px;
+    top: 0px;
+    right: 0px;
+    background: white;
+    border: 1px solid #999;
+    border-radius: 3px;
+    font-size: 14px;
     cursor: pointer;
     color: #f44336;
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -835,20 +836,21 @@ body {
 }
 
 .edit-close-btn:hover {
-    color: #d32f2f;
+    background: #ffebee;
 }
 
 .edit-delete-btn {
     position: absolute;
-    bottom: 2px;
-    left: 2px;
-    background: none;
-    border: none;
-    font-size: 16px;
+    bottom: 0px;
+    left: 0px;
+    background: white;
+    border: 1px solid #999;
+    border-radius: 3px;
+    font-size: 14px;
     cursor: pointer;
     color: #ff9800;
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -859,20 +861,21 @@ body {
 }
 
 .edit-delete-btn:hover {
-    color: #f57c00;
+    background: #fff3e0;
 }
 
 .edit-save-btn {
     position: absolute;
-    bottom: 2px;
-    right: 2px;
-    background: none;
-    border: none;
-    font-size: 16px;
+    bottom: 0px;
+    right: 0px;
+    background: white;
+    border: 1px solid #999;
+    border-radius: 3px;
+    font-size: 14px;
     cursor: pointer;
     color: #4CAF50;
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     display: flex;
     align-items: center;
     justify-content: center;

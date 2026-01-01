@@ -79,15 +79,19 @@ export class Card extends DraggableElement {
         bodyDiv.textContent = this.body;
         card.appendChild(bodyDiv);
 
-        // Author initials in bottom right
+        // Author initials in top right (above pink line)
         if (this.authorInitials) {
             const initialsDiv = document.createElement('div');
             initialsDiv.className = 'card-initials';
             initialsDiv.style.position = 'absolute';
-            initialsDiv.style.bottom = '4px';
+            initialsDiv.style.top = '0px';
             initialsDiv.style.right = '8px';
-            initialsDiv.style.fontSize = '8px';
-            initialsDiv.style.color = '#666';
+            initialsDiv.style.fontSize = '11px';
+            initialsDiv.style.fontWeight = 'bold';
+            initialsDiv.style.lineHeight = '20px';
+            initialsDiv.style.height = '20px';
+            initialsDiv.style.color = '#333';
+            initialsDiv.style.zIndex = '2';
             initialsDiv.textContent = this.authorInitials;
             card.appendChild(initialsDiv);
         }
