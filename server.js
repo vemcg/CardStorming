@@ -453,21 +453,23 @@ io.on('connection', (socket) => {
     });
 
     // Handle delete all cards
-    socket.on('cards:delete-all', () => {
-        const project = getProject(projectId);
+    socket.on('cards:delete-all', (data) => {
+        const targetProjectId = data.projectId || projectId;
+        const project = getProject(targetProjectId);
         project.cards = [];
-        saveProjectToDisk(projectId, true); // Synchronous save to block until complete
-        io.to(projectId).emit('cards:delete-all');
-        console.log(`All cards deleted from project ${projectId}`);
+        saveProjectToDisk(targetProjectId, true); // Synchronous save to block until complete
+        io.to(targetProjectId).emit('cards:delete-all');
+        console.log(`All cards deleted from project ${targetProjectId}`);
     });
 
     // Handle delete all palette cards
-    socket.on('palette:delete-all', () => {
-        const project = getProject(projectId);
+    socket.on('palette:delete-all', (data) => {
+        const targetProjectId = data.projectId || projectId;
+        const project = getProject(targetProjectId);
         project.paletteCards = [];
-        saveProjectToDisk(projectId, true); // Synchronous save to block until complete
-        io.to(projectId).emit('palette:delete-all');
-        console.log(`All palette cards deleted from project ${projectId}`);
+        saveProjectToDisk(targetProjectId, true); // Synchronous save to block until complete
+        io.to(targetProjectId).emit('palette:delete-all');
+        console.log(`All palette cards deleted from project ${targetProjectId}`);
     });
 
     // Handle clear palette (legacy - keeping for compatibility)
