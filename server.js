@@ -454,12 +454,17 @@ io.on('connection', (socket) => {
 
     // Handle delete all cards
     socket.on('cards:delete-all', (data) => {
-        const targetProjectId = data.projectId || projectId;
+        const targetProjectId = data?.projectId || projectId;
+        console.log(`[DELETE] Received delete request for project ${targetProjectId}`, data);
         const project = getProject(targetProjectId);
+        const cardCount = project.cards.length;
+        console.log(`[DELETE] Found ${cardCount} cards in project ${targetProjectId}, clearing...`);
         project.cards = [];
+        console.log(`[DELETE] Cards array cleared, saving to disk synchronously...`);
         saveProjectToDisk(targetProjectId, true); // Synchronous save to block until complete
+        console.log(`[DELETE] Disk save complete, broadcasting event to room`);
         io.to(targetProjectId).emit('cards:delete-all');
-        console.log(`All cards deleted from project ${targetProjectId}`);
+        console.log(`[DELETE] All cards deleted from project ${targetProjectId}`);
     });
 
     // Handle delete all palette cards
