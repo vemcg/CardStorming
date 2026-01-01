@@ -37,7 +37,7 @@ setInterval(() => {
 }, 5000);
 
 // Save a single project to disk
-function saveProjectToDisk(projectId) {
+function saveProjectToDisk(projectId, sync = false) {
     const project = projects.get(projectId);
     if (!project) return;
 
@@ -45,13 +45,24 @@ function saveProjectToDisk(projectId) {
     const serialized = serializeProject(project);
     const data = JSON.stringify(serialized, null, 2);
 
-    fs.writeFile(filePath, data, 'utf8', (err) => {
-        if (err) {
-            console.error(`Error saving project ${projectId}:`, err);
-        } else {
-            console.log(`Saved project ${projectId} to disk`);
+    if (sync) {
+        // Synchronous write for immediate saves (delete operations)
+        try {
+            fs.writeFileSync(filePath, data, 'utf8');
+            console.log(`Saved project ${projectId} to disk (sync)`);
+        } catch (err) {
+            console.error(`Error saving project ${projectId} (sync):`, err);
         }
-    });
+    } else {
+        // Async write for background saves
+        fs.writeFile(filePath, data, 'utf8', (err) => {
+            if (err) {
+                console.error(`Error saving project ${projectId}:`, err);
+            } else {
+                console.log(`Saved project ${projectId} to disk`);
+            }
+        });
+    }
 }
 
 // Load a project from disk
@@ -445,8 +456,7 @@ io.on('connection', (socket) => {
     socket.on('cards:delete-all', () => {
         const project = getProject(projectId);
         project.cards = [];
-        markProjectDirty(projectId);
-        saveProjectToDisk(projectId); // Immediate save for delete operations
+        saveProjectToDisk(projectId, true); // Synchronous save to block until complete
         io.to(projectId).emit('cards:delete-all');
         console.log(`All cards deleted from project ${projectId}`);
     });
@@ -455,8 +465,7 @@ io.on('connection', (socket) => {
     socket.on('palette:delete-all', () => {
         const project = getProject(projectId);
         project.paletteCards = [];
-        markProjectDirty(projectId);
-        saveProjectToDisk(projectId); // Immediate save for delete operations
+        saveProjectToDisk(projectId, true); // Synchronous save to block until complete
         io.to(projectId).emit('palette:delete-all');
         console.log(`All palette cards deleted from project ${projectId}`);
     });
