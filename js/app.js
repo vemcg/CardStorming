@@ -9,12 +9,15 @@ import { AppState } from './core/AppState.js';
 import { Card } from './elements/Card.js';
 import { Wormhole } from './elements/Wormhole.js';
 import { ZoomSearchTool } from './elements/ZoomSearchTool.js';
+import { Auth } from './core/Auth.js';
+import { showRegistrationDialog, showIdentityDialog, showReadOnlyBanner, hideReadOnlyBanner } from './utils/DialogUtils.js';
 
 // ============================================================================
 // GLOBAL STATE
 // ============================================================================
 
 const appState = new AppState();
+const auth = new Auth();
 let viewportManager = null;
 let socket = null;
 let currentProjectId = null;
@@ -23,6 +26,7 @@ let currentUserInitials = '';
 
 // Export to window for debugging
 window.appState = appState;
+window.auth = auth;
 window.debugLog = debugLog;
 window.viewportManager = null; // Will be set after init
 
@@ -345,6 +349,62 @@ function disableToolbarButtons() {
             btn.style.cursor = 'not-allowed';
         }
     });
+}
+
+function updateUIForAuthState() {
+    const authenticated = auth.isAuthenticated();
+    const hasProject = isProjectOpen;
+    const hasWriteAccess = auth.hasWriteAccess();
+
+    // Show/hide read-only banner
+    if (hasProject && !hasWriteAccess) {
+        showReadOnlyBanner();
+    } else {
+        hideReadOnlyBanner();
+    }
+
+    // Disable palette cards in read-only mode
+    const paletteCards = document.querySelectorAll('.palette-card');
+    paletteCards.forEach(card => {
+        card.draggable = hasWriteAccess;
+        card.style.opacity = hasWriteAccess ? '1' : '0.5';
+        card.style.cursor = hasWriteAccess ? 'grab' : 'not-allowed';
+    });
+
+    // Toolbar buttons - use existing enable/disable functions
+    if (hasProject && hasWriteAccess) {
+        enableToolbarButtons();
+    } else {
+        disableToolbarButtons();
+    }
+
+    // Menu items
+    const newMenuItem = document.getElementById('menu-new');
+    const openMenuItem = document.getElementById('menu-open');
+
+    if (!authenticated) {
+        // No user - only New is enabled (will trigger registration)
+        if (newMenuItem) {
+            newMenuItem.style.opacity = '1';
+            newMenuItem.style.pointerEvents = 'auto';
+        }
+        if (openMenuItem) {
+            openMenuItem.style.opacity = '0.5';
+            openMenuItem.style.pointerEvents = 'none';
+        }
+    } else {
+        // Authenticated - both enabled
+        if (newMenuItem) {
+            newMenuItem.style.opacity = '1';
+            newMenuItem.style.pointerEvents = 'auto';
+        }
+        if (openMenuItem) {
+            openMenuItem.style.opacity = '1';
+            openMenuItem.style.pointerEvents = 'auto';
+        }
+    }
+
+    debugLog.info('UI updated for auth state', { authenticated, hasProject, hasWriteAccess });
 }
 
 function showIdentityModal(projectId) {
@@ -1659,6 +1719,13 @@ function setupPaletteDropZone() {
 document.addEventListener('DOMContentLoaded', async function() {
     debugLog.info('DOM loaded, initializing CardStorming');
 
+    // Initialize authentication
+    await auth.init();
+    debugLog.info('Auth initialized', {
+        authenticated: auth.isAuthenticated(),
+        userHash: auth.userHash
+    });
+
     // Clean up any invalid project IDs and restore from server
     await cleanupInvalidProjects();
 
@@ -1702,6 +1769,8 @@ document.addEventListener('DOMContentLoaded', async function() {
                 openProject(projectIdFromURL);
             } else {
                 closeProject();
+                // Update UI for initial state (no project, maybe no auth)
+                updateUIForAuthState();
             }
         } else {
             debugLog.info('Socket reconnected (initial connect already handled)');
