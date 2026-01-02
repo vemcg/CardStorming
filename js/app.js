@@ -210,7 +210,7 @@ function migrateProjectData(serverState) {
 // PROJECT OPEN/CLOSE
 // ============================================================================
 
-function openProject(projectId) {
+async function openProject(projectId) {
     if (!projectId || projectId === 'null' || projectId === 'undefined') {
         debugLog.error('Attempted to open project with invalid ID', { projectId });
         closeProject();
@@ -218,6 +218,30 @@ function openProject(projectId) {
     }
 
     debugLog.info('Opening project', { projectId });
+
+    // Check authentication and handle project joining
+    if (!auth.isAuthenticated()) {
+        // User not authenticated - open in read-only mode
+        auth.setReadOnly(true);
+        debugLog.info('Opening project in read-only mode (not authenticated)');
+    } else {
+        // Check if user is member of this project
+        const projectIdentities = await auth.getProjectIdentities(projectId);
+
+        if (projectIdentities.length === 0) {
+            // Not a member - read-only mode
+            auth.setReadOnly(true);
+            debugLog.info('Opening project in read-only mode (not a member)');
+        } else {
+            // Is a member - use the identity that was set by openProjectWithIdentitySelection
+            // or set the first one if coming from URL
+            if (!auth.getCurrentIdentity() && projectIdentities.length > 0) {
+                auth.setCurrentIdentity(projectIdentities[0].name, projectIdentities[0].initials);
+                currentUserInitials = projectIdentities[0].initials;
+            }
+            auth.setReadOnly(false);
+        }
+    }
 
     currentProjectId = projectId;
     isProjectOpen = true;
@@ -284,8 +308,8 @@ function openProject(projectId) {
     const shareBtn = document.getElementById('share-btn');
     if (shareBtn) shareBtn.style.display = 'inline-block';
 
-    // Enable toolbar buttons
-    enableToolbarButtons();
+    // Update UI based on auth state (will enable/disable based on write access)
+    updateUIForAuthState();
 
     debugLog.info('Project opened', { projectId });
 }
@@ -441,6 +465,58 @@ function showIdentityModal(projectId) {
         });
     } else {
         closeProject();
+    }
+}
+
+// ============================================================================
+// WRITE ACCESS CONTROL
+// ============================================================================
+
+async function requireWriteAccess() {
+    if (auth.hasWriteAccess()) {
+        return true; // Already has access
+    }
+
+    // User needs to authenticate
+    try {
+        if (!auth.isAuthenticated()) {
+            // Register first
+            const result = await showRegistrationDialog('To edit this project, please register:');
+            await auth.register(result.email, result.name, result.initials);
+        }
+
+        // Select identity
+        const identities = await auth.getIdentities();
+        const identity = await showIdentityDialog(
+            identities,
+            'Select Identity',
+            'Choose which identity to use for this project:',
+            async (name, initials) => {
+                const result = await auth.checkIdentityConflict(currentProjectId, name, initials);
+                if (result.conflict) {
+                    return {
+                        conflict: true,
+                        message: `Initials "${initials}" already used by ${result.existingName}`
+                    };
+                }
+                return { conflict: false };
+            }
+        );
+
+        // Join project
+        await auth.joinProject(currentProjectId, identity.name, identity.initials);
+        auth.setCurrentIdentity(identity.name, identity.initials);
+        currentUserInitials = identity.initials;
+
+        // Update UI
+        updateUIForAuthState();
+
+        return true;
+    } catch (err) {
+        if (err.message !== 'Registration cancelled' && err.message !== 'Identity selection cancelled') {
+            console.error('Error getting write access:', err);
+        }
+        return false;
     }
 }
 
@@ -1771,7 +1847,7 @@ function setupPaletteDropZone() {
     viewportContent.addEventListener('dragover', handleDragOver);
 
     // Handle drop
-    const handleDrop = (e) => {
+    const handleDrop = async (e) => {
         e.preventDefault();
         e.stopPropagation();
 
@@ -1780,6 +1856,12 @@ function setupPaletteDropZone() {
             clientY: e.clientY,
             dataTypes: Array.from(e.dataTransfer.types)
         });
+
+        // Check write access before allowing drop
+        const hasAccess = await requireWriteAccess();
+        if (!hasAccess) {
+            return; // User cancelled auth
+        }
 
         try {
             const jsonData = e.dataTransfer.getData('application/json');
