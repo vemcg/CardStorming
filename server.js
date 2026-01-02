@@ -555,6 +555,33 @@ app.get('/api/project/:projectHash/users', (req, res) => {
     res.json({ users });
 });
 
+// Get list of all projects with user counts
+app.get('/api/projects/list', (req, res) => {
+    try {
+        // Read all project files from disk
+        const projectFiles = fs.readdirSync(DATA_DIR).filter(f => f.endsWith('.json'));
+
+        const projectsList = projectFiles.map(file => {
+            const projectId = file.replace('.json', '');
+            const project = getProject(projectId);
+
+            // Count users
+            const userCount = project.users ? project.users.size : 0;
+
+            return {
+                id: projectId,
+                name: project.projectName || 'Unnamed Project',
+                userCount: userCount
+            };
+        });
+
+        res.json({ projects: projectsList });
+    } catch (err) {
+        console.error('Error listing projects:', err);
+        res.status(500).json({ error: 'Failed to list projects' });
+    }
+});
+
 // Admin route to reset all projects
 app.post('/api/reset', (req, res) => {
     projects.clear();

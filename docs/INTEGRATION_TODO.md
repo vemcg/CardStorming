@@ -154,7 +154,7 @@ if (newMenuItem) {
 
 ### 6. Modify populateOpenSubmenu Function
 
-Update to filter by user's projects:
+Update to show two sections: user's projects + unclaimed projects:
 ```javascript
 async function populateOpenSubmenu() {
     const submenu = document.querySelector('#menu-open + .submenu');
@@ -163,42 +163,131 @@ async function populateOpenSubmenu() {
     submenu.innerHTML = '<li class="submenu-loading">Loading...</li>';
 
     try {
-        let projectsToShow = {};
+        const knownProjects = getKnownProjects();
+        let userProjects = [];
+        let unclaimedProjects = [];
 
         if (auth.isAuthenticated()) {
             // Get user's projects from server
-            const userProjects = await auth.getProjects();
-
-            // Get project names
-            const knownProjects = getKnownProjects();
-
-            userProjects.forEach(projectId => {
-                projectsToShow[projectId] = knownProjects[projectId] || 'Unnamed Project';
-            });
-        } else {
-            // Not authenticated - show empty list
-            projectsToShow = {};
+            userProjects = await auth.getProjects();
         }
 
+        // Get list of all projects with user counts
+        // We need a new API endpoint for this
+        const response = await fetch('/api/projects/list');
+        const { projects } = await response.json();
+
+        // Separate into user's projects and unclaimed
+        const userProjectSet = new Set(userProjects);
+
+        projects.forEach(project => {
+            if (userProjectSet.has(project.id)) {
+                // Already in user's list
+            } else if (project.userCount === 0) {
+                // Unclaimed project
+                unclaimedProjects.push(project);
+            }
+            // Projects with users that aren't this user are not shown
+        });
+
         // Build submenu
-        if (Object.keys(projectsToShow).length === 0) {
-            submenu.innerHTML = '<li class="submenu-item submenu-empty">No projects available</li>';
-        } else {
-            submenu.innerHTML = '';
-            Object.entries(projectsToShow).forEach(([projectId, projectName]) => {
+        submenu.innerHTML = '';
+
+        // Section 1: User's Projects
+        if (userProjects.length > 0) {
+            const userHeader = document.createElement('li');
+            userHeader.className = 'submenu-header';
+            userHeader.textContent = 'My Projects';
+            submenu.appendChild(userHeader);
+
+            userProjects.forEach(projectId => {
                 const li = document.createElement('li');
                 li.className = 'submenu-item';
-                li.textContent = projectName;
+                li.textContent = knownProjects[projectId] || 'Unnamed Project';
                 li.addEventListener('click', async () => {
                     await openProjectWithIdentitySelection(projectId);
                 });
                 submenu.appendChild(li);
             });
         }
+
+        // Section 2: Unclaimed Projects
+        if (unclaimedProjects.length > 0) {
+            const unclaimedHeader = document.createElement('li');
+            unclaimedHeader.className = 'submenu-header';
+            unclaimedHeader.textContent = 'Unclaimed Projects';
+            submenu.appendChild(unclaimedHeader);
+
+            unclaimedProjects.forEach(project => {
+                const li = document.createElement('li');
+                li.className = 'submenu-item';
+                li.textContent = knownProjects[project.id] || 'Unnamed Project';
+                li.addEventListener('click', async () => {
+                    // Open unclaimed project (will open read-only, then prompt to join)
+                    openProject(project.id);
+                });
+                submenu.appendChild(li);
+            });
+        }
+
+        // No projects at all
+        if (userProjects.length === 0 && unclaimedProjects.length === 0) {
+            submenu.innerHTML = '<li class="submenu-item submenu-empty">No projects available</li>';
+        }
+
     } catch (err) {
         console.error('Error populating projects:', err);
         submenu.innerHTML = '<li class="submenu-item submenu-error">Error loading projects</li>';
     }
+}
+```
+
+**Note:** This requires a new server endpoint (see step 6a below).
+
+### 6a. Add Server Endpoint for Project List
+
+Add to server.js after the existing user API endpoints:
+```javascript
+// Get list of all projects with user counts
+app.get('/api/projects/list', (req, res) => {
+    // Read all project files from disk
+    const projectFiles = fs.readdirSync(DATA_DIR).filter(f => f.endsWith('.json'));
+
+    const projects = projectFiles.map(file => {
+        const projectId = file.replace('.json', '');
+        const project = getProject(projectId);
+
+        // Count users
+        const userCount = project.users ? project.users.size : 0;
+
+        return {
+            id: projectId,
+            name: project.projectName || 'Unnamed Project',
+            userCount: userCount
+        };
+    });
+
+    res.json({ projects });
+});
+```
+
+### 6b. Add CSS for Submenu Headers
+
+Add to style.css:
+```css
+.submenu-header {
+    padding: 8px 12px;
+    font-weight: bold;
+    font-size: 11px;
+    color: #666;
+    background-color: #f0f0f0;
+    border-bottom: 1px solid #ddd;
+    cursor: default;
+    text-transform: uppercase;
+}
+
+.submenu-header:hover {
+    background-color: #f0f0f0;
 }
 ```
 
