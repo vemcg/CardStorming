@@ -566,6 +566,8 @@ function setupZoomControls() {
         zoomOutBtn.addEventListener('click', (e) => {
             e.preventDefault();
             viewportManager.zoomOut();
+            // Save manual zoom level
+            viewportManager.saveManualZoom();
         });
     }
 
@@ -573,13 +575,19 @@ function setupZoomControls() {
         zoomInBtn.addEventListener('click', (e) => {
             e.preventDefault();
             viewportManager.zoomIn();
+            // Save manual zoom level
+            viewportManager.saveManualZoom();
         });
     }
 
     if (centerBtn) {
         centerBtn.addEventListener('click', (e) => {
             e.preventDefault();
+            // Reset to default zoom (1.0) and center view
+            viewportManager.zoomTo(1.0);
             viewportManager.centerView();
+            // Save this as the manual zoom
+            viewportManager.saveManualZoom();
         });
     }
 }
@@ -792,13 +800,45 @@ function setupViewportDrag() {
 // EDIT MODAL
 // ============================================================================
 
+/**
+ * Extract text from contenteditable element, preserving line breaks
+ */
+function getContentEditableText(element) {
+    // Clone the element to avoid modifying the original
+    const clone = element.cloneNode(true);
+
+    // Replace <div> and <br> with newlines
+    clone.querySelectorAll('div').forEach(div => {
+        div.insertAdjacentText('beforebegin', '\n');
+    });
+    clone.querySelectorAll('br').forEach(br => {
+        br.replaceWith('\n');
+    });
+
+    return clone.textContent || '';
+}
+
+/**
+ * Set text in contenteditable element, converting newlines to proper HTML
+ */
+function setContentEditableText(element, text) {
+    // Convert newlines to <br> tags for display
+    element.innerHTML = '';
+    const lines = text.split('\n');
+    lines.forEach((line, index) => {
+        element.appendChild(document.createTextNode(line));
+        if (index < lines.length - 1) {
+            element.appendChild(document.createElement('br'));
+        }
+    });
+}
+
 function setupEditModal() {
     const editModal = document.getElementById('edit-modal');
     const editCardHeader = document.getElementById('edit-card-header');
     const editCardBody = document.getElementById('edit-card-body');
     const editCardVisual = document.getElementById('edit-card-visual');
     const editSave = document.getElementById('edit-save');
-    const editCancel = document.getElementById('edit-cancel');
     const editClose = document.getElementById('edit-close');
     const editDelete = document.getElementById('edit-delete');
 
@@ -825,15 +865,20 @@ function setupEditModal() {
         const mouseEvent = e.detail.mouseEvent;
 
         editCardHeader.textContent = card.header;
-        editCardBody.textContent = card.body;
+        setContentEditableText(editCardBody, card.body);
         editModal.dataset.editingCardId = card.id;
 
         // Set the card color on the visual preview
         if (editCardVisual) {
             editCardVisual.style.backgroundColor = card.color;
+
+            // Calculate and set text color based on background brightness
+            const textColor = card.getTextColor();
+            editCardHeader.style.color = textColor;
+            editCardBody.style.color = textColor;
         }
 
-        // Position modal exactly over the card
+        // Position and size modal exactly to match the card
         if (card.element) {
             const cardRect = card.element.getBoundingClientRect();
 
@@ -842,6 +887,22 @@ function setupEditModal() {
             editModal.style.left = cardRect.left + 'px';
             editModal.style.top = cardRect.top + 'px';
             editModal.style.transform = 'none';
+
+            // Match the card's actual size (including zoom)
+            editCardVisual.style.width = cardRect.width + 'px';
+            editCardVisual.style.height = cardRect.height + 'px';
+            editCardVisual.style.minHeight = 'unset';
+            editCardVisual.style.maxHeight = 'unset';
+
+            // Calculate zoom scale from card width (natural width is 150px)
+            const zoomScale = cardRect.width / 150;
+
+            // Scale font sizes to match zoom
+            editCardHeader.style.fontSize = (11 * zoomScale) + 'px';
+            editCardBody.style.fontSize = (9 * zoomScale) + 'px';
+
+            // Scale spacing
+            editCardHeader.style.marginBottom = (4 * zoomScale) + 'px';
         } else if (mouseEvent) {
             // Fallback to mouse position if card element not available
             const modalWidth = 150;
@@ -874,11 +935,11 @@ function setupEditModal() {
 
             if (card) {
                 const newHeader = editCardHeader.textContent.trim();
-                const newBody = editCardBody.textContent.trim();
+                const newBody = getContentEditableText(editCardBody).trim();
 
                 card.updateContent(newHeader, newBody);
 
-                socket.emit('card:update', {
+                socket.emit('viewport:update', {
                     id: cardId,
                     header: newHeader,
                     body: newBody
@@ -890,12 +951,81 @@ function setupEditModal() {
         });
     }
 
-    if (editCancel) {
-        editCancel.addEventListener('click', () => {
+    if (editClose) {
+        editClose.addEventListener('click', () => {
+            // Save before closing
+            const cardId = editModal.dataset.editingCardId;
+            const card = appState.getCard(cardId);
+
+            if (card) {
+                const newHeader = editCardHeader.textContent.trim();
+                const newBody = getContentEditableText(editCardBody).trim();
+
+                card.updateContent(newHeader, newBody);
+
+                socket.emit('viewport:update', {
+                    id: cardId,
+                    header: newHeader,
+                    body: newBody
+                });
+            }
+
             editModal.style.display = 'none';
             editModal.dataset.editingCardId = '';
         });
     }
+
+    // Delete button
+    if (editDelete) {
+        editDelete.addEventListener('click', () => {
+            const cardId = editModal.dataset.editingCardId;
+            const card = appState.getCard(cardId);
+
+            if (card && confirm('Delete this card?')) {
+                // Remove from DOM
+                if (card.element) {
+                    card.element.remove();
+                }
+
+                // Remove from state
+                appState.cards.delete(cardId);
+
+                // Emit to server
+                socket.emit('card:delete', { id: cardId });
+
+                // Close modal
+                editModal.style.display = 'none';
+                editModal.dataset.editingCardId = '';
+
+                debugLog.info('Card deleted', { id: cardId });
+            }
+        });
+    }
+
+    // Click outside modal to save and close
+    editModal.addEventListener('click', (e) => {
+        // Only close if clicking the modal background (not the content)
+        if (e.target === editModal) {
+            const cardId = editModal.dataset.editingCardId;
+            const card = appState.getCard(cardId);
+
+            if (card) {
+                const newHeader = editCardHeader.textContent.trim();
+                const newBody = getContentEditableText(editCardBody).trim();
+
+                card.updateContent(newHeader, newBody);
+
+                socket.emit('viewport:update', {
+                    id: cardId,
+                    header: newHeader,
+                    body: newBody
+                });
+            }
+
+            editModal.style.display = 'none';
+            editModal.dataset.editingCardId = '';
+        }
+    });
 }
 
 // ============================================================================
@@ -1048,15 +1178,31 @@ function renderPaletteCards() {
     // Render each palette card
     const paletteCards = appState.paletteCards || [];
     paletteCards.forEach(paletteCard => {
+        // Create stack container
+        const stackEl = document.createElement('div');
+        stackEl.className = 'card-stack';
+        stackEl.style.backgroundColor = paletteCard.color;
+
+        // Create the actual card
         const cardEl = document.createElement('div');
         cardEl.className = 'palette-card';
         cardEl.draggable = true;
         cardEl.dataset.cardType = paletteCard.type;
         cardEl.dataset.cardColor = paletteCard.color;
         cardEl.style.backgroundColor = paletteCard.color;
+
+        // Calculate text color based on background brightness
+        const hex = paletteCard.color.replace('#', '');
+        const r = parseInt(hex.substr(0, 2), 16);
+        const g = parseInt(hex.substr(2, 2), 16);
+        const b = parseInt(hex.substr(4, 2), 16);
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        cardEl.style.color = luminance > 0.5 ? '#000000' : '#FFFFFF';
+
         cardEl.textContent = paletteCard.type;
 
-        cardList.appendChild(cardEl);
+        stackEl.appendChild(cardEl);
+        cardList.appendChild(stackEl);
     });
 
     debugLog.info('Rendered palette cards', { count: paletteCards.length });
@@ -1232,6 +1378,18 @@ function setupSocketHandlers() {
             wormhole.x = data.x;
             wormhole.y = data.y;
             wormhole.updatePosition(viewportManager);
+        }
+    });
+
+    // Card deleted by another user (or us)
+    socket.on('card:delete', (data) => {
+        const card = appState.getCard(data.id);
+        if (card) {
+            if (card.element) {
+                card.element.remove();
+            }
+            appState.cards.delete(data.id);
+            debugLog.info('Card deleted by remote user', { id: data.id });
         }
     });
 
@@ -1430,7 +1588,10 @@ function setupPaletteDropZone() {
                 return;
             }
 
-            // Get workspace coordinates from drop position
+            // Restore manual zoom FIRST (before coordinate conversion)
+            viewportManager.restoreManualZoom();
+
+            // Get workspace coordinates from drop position (using restored zoom)
             const workspacePos = CoordinateSystem.screenToWorkspace(
                 e.clientX,
                 e.clientY,

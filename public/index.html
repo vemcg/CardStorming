@@ -97,13 +97,15 @@
     <!-- Card Edit Modal -->
     <div id="edit-modal" class="modal">
         <div class="modal-content edit-card-container">
-            <button id="edit-close" class="edit-close-btn">&times;</button>
             <div class="edit-card-visual" id="edit-card-visual">
                 <div class="edit-card-header" id="edit-card-header" contenteditable="true" data-placeholder="Header"></div>
                 <div class="edit-card-body" id="edit-card-body" contenteditable="true" data-placeholder="Body text..."></div>
             </div>
-            <button id="edit-delete" class="edit-delete-btn">&#128465;</button>
-            <button id="edit-save" class="edit-save-btn">&#10003;</button>
+            <div class="edit-button-row">
+                <button id="edit-delete" class="edit-delete-btn">&#128465;</button>
+                <button id="edit-close" class="edit-close-btn">&times;</button>
+                <button id="edit-save" class="edit-save-btn">&#10003;</button>
+            </div>
         </div>
     </div>
 

@@ -22,6 +22,8 @@ export class DraggableElement {
         this.dragStartTime = 0;
         this.dragStartX = 0;
         this.dragStartY = 0;
+        this.dragStartWorkspaceX = 0;
+        this.dragStartWorkspaceY = 0;
         this.dragOffsetX = 0;
         this.dragOffsetY = 0;
         this.hasMoved = false;
@@ -73,6 +75,8 @@ export class DraggableElement {
         this.dragStartTime = Date.now();
         this.dragStartX = e.clientX;
         this.dragStartY = e.clientY;
+        this.dragStartWorkspaceX = this.x;
+        this.dragStartWorkspaceY = this.y;
         this.hasMoved = false;
 
         // Store the initial mouse position in workspace coordinates
@@ -134,8 +138,13 @@ export class DraggableElement {
         this.y = workspacePos.y + this.dragOffsetY;
         this.updatePosition(viewportManager);
 
-        // Auto-pan near edges
-        viewportManager.autoPan(e);
+        // Auto-pan based on card's distance from start position
+        viewportManager.autoPan(
+            this.dragStartWorkspaceX,
+            this.dragStartWorkspaceY,
+            this.x,
+            this.y
+        );
 
         // Update nearest card for preview
         if (this.enableCardPreview && appState) {

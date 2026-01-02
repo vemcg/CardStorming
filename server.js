@@ -420,6 +420,18 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Handle single card delete
+    socket.on('card:delete', (data) => {
+        const project = getProject(projectId);
+        const { id } = data;
+        const cardIndex = project.cards.findIndex(c => c.id === id);
+        if (cardIndex !== -1) {
+            project.cards.splice(cardIndex, 1);
+            markProjectDirty(projectId);
+            io.to(projectId).emit('card:delete', { id });
+        }
+    });
+
     // Handle clear viewport (delete all cards and wormholes)
     socket.on('viewport:clear', () => {
         const project = getProject(projectId);

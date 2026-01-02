@@ -18,6 +18,23 @@ export class Card extends DraggableElement {
     }
 
     /**
+     * Calculate text color based on background brightness
+     */
+    getTextColor() {
+        // Convert hex to RGB
+        const hex = this.color.replace('#', '');
+        const r = parseInt(hex.substr(0, 2), 16);
+        const g = parseInt(hex.substr(2, 2), 16);
+        const b = parseInt(hex.substr(4, 2), 16);
+
+        // Calculate relative luminance
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+
+        // Return white for dark backgrounds, black for light
+        return luminance > 0.5 ? '#000000' : '#FFFFFF';
+    }
+
+    /**
      * Render card to DOM
      */
     render(viewportManager) {
@@ -29,7 +46,8 @@ export class Card extends DraggableElement {
 
         card.style.position = 'absolute';
         card.style.width = '150px';
-        card.style.height = '100px';
+        card.style.minHeight = '120px';
+        card.style.height = 'auto';
         card.style.backgroundColor = this.color;
         card.style.cursor = 'grab';
         card.style.userSelect = 'none';
@@ -39,58 +57,45 @@ export class Card extends DraggableElement {
         card.style.overflow = 'hidden';
         card.style.wordWrap = 'break-word';
 
-        // Opaque background color fills entire card
+        // Plain colored background
         card.style.backgroundColor = this.color;
 
-        // Pink header line at 20px and blue ruled lines as overlay
-        card.style.background = `
-            linear-gradient(to right, #FFB6C1 0%, #FFB6C1 100%),
-            repeating-linear-gradient(
-                to bottom,
-                transparent 0px,
-                transparent 19px,
-                #87CEEB 19px,
-                #87CEEB 20px
-            ),
-            ${this.color}
-        `;
-        card.style.backgroundPosition = '0 20px, 0 20px, 0 0';
-        card.style.backgroundSize = '100% 1px, 100% 20px, 100% 100%';
-        card.style.backgroundRepeat = 'no-repeat, repeat, no-repeat';
+        // Calculate text color based on background brightness
+        const textColor = this.getTextColor();
 
         // Header text
         const headerDiv = document.createElement('div');
         headerDiv.style.fontSize = '11px';
         headerDiv.style.fontWeight = 'bold';
-        headerDiv.style.lineHeight = '20px';
-        headerDiv.style.height = '20px';
+        headerDiv.style.lineHeight = '1.2';
+        headerDiv.style.marginBottom = '4px';
         headerDiv.style.overflow = 'hidden';
         headerDiv.style.textOverflow = 'ellipsis';
         headerDiv.style.whiteSpace = 'nowrap';
+        headerDiv.style.color = textColor;
         headerDiv.textContent = this.header;
         card.appendChild(headerDiv);
 
         // Body text
         const bodyDiv = document.createElement('div');
         bodyDiv.style.fontSize = '9px';
-        bodyDiv.style.lineHeight = '20px';
-        bodyDiv.style.marginTop = '0px';
-        bodyDiv.style.overflow = 'hidden';
+        bodyDiv.style.lineHeight = '1.4';
+        bodyDiv.style.overflow = 'visible';
+        bodyDiv.style.color = textColor;
+        bodyDiv.style.whiteSpace = 'pre-wrap';
         bodyDiv.textContent = this.body;
         card.appendChild(bodyDiv);
 
-        // Author initials in top right (above pink line)
+        // Author initials in top right
         if (this.authorInitials) {
             const initialsDiv = document.createElement('div');
             initialsDiv.className = 'card-initials';
             initialsDiv.style.position = 'absolute';
-            initialsDiv.style.top = '0px';
+            initialsDiv.style.top = '8px';
             initialsDiv.style.right = '8px';
             initialsDiv.style.fontSize = '11px';
             initialsDiv.style.fontWeight = 'bold';
-            initialsDiv.style.lineHeight = '20px';
-            initialsDiv.style.height = '20px';
-            initialsDiv.style.color = '#333';
+            initialsDiv.style.color = textColor;
             initialsDiv.style.zIndex = '2';
             initialsDiv.textContent = this.authorInitials;
             card.appendChild(initialsDiv);

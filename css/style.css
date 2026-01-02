@@ -473,7 +473,7 @@ body {
 .card-stack {
     position: relative;
     width: 100%;
-    min-height: 80px;
+    aspect-ratio: 5 / 4; /* Match viewport card ratio */
     margin-bottom: 30px;
     background: none;
 }
@@ -481,9 +481,8 @@ body {
 .palette-card {
     position: relative;
     width: 100%;
-    min-height: 80px;
-    padding: 0 10px 10px 10px;
-    margin-bottom: 15px;
+    height: 100%;
+    padding: 8px;
     border: 1px solid #999;
     border-radius: 3px;
     box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
@@ -492,42 +491,13 @@ body {
     align-items: center;
     justify-content: center;
     font-weight: bold;
+    font-size: 14px;
     text-align: center;
     user-select: none;
     overflow: visible;
     z-index: 3;
 }
 
-/* Index card horizontal lines - using linear gradient */
-.palette-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-image:
-        linear-gradient(to bottom,
-            transparent 0px,
-            transparent 20px,
-            #ff69b4 20px,
-            #ff69b4 21px,
-            transparent 21px
-        ),
-        repeating-linear-gradient(
-            to bottom,
-            transparent,
-            transparent 19px,
-            #87CEEB 19px,
-            #87CEEB 20px
-        );
-    background-size: 100% 100%, 100% 20px;
-    background-position: 0 0, 0 21px;
-    background-repeat: no-repeat, repeat;
-    border-radius: 3px;
-    z-index: -1;
-    pointer-events: none;
-}
 
 .palette-card:active {
     cursor: grabbing;
@@ -543,13 +513,10 @@ body {
     content: '';
     position: absolute;
     width: 100%;
-    height: 80px;
+    height: 100%;
     border: 1px solid #999;
     border-radius: 3px;
     background-color: inherit;
-    background-image: url('../images/index-card-lines.svg');
-    background-repeat: repeat-y;
-    background-size: 100% auto;
     box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
 }
 
@@ -585,37 +552,6 @@ body {
     z-index: 1;
     overflow: hidden;
     pointer-events: auto;
-}
-
-/* Index card horizontal lines for viewport cards */
-.viewport-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-image:
-        linear-gradient(to bottom,
-            transparent 0px,
-            transparent 20px,
-            #ff69b4 20px,
-            #ff69b4 21px,
-            transparent 21px
-        ),
-        repeating-linear-gradient(
-            to bottom,
-            transparent,
-            transparent 19px,
-            #87CEEB 19px,
-            #87CEEB 20px
-        );
-    background-size: 100% 100%, 100% 20px;
-    background-position: 0 0, 0 21px;
-    background-repeat: no-repeat, repeat;
-    border-radius: 3px;
-    z-index: -1;
-    pointer-events: none;
 }
 
 .viewport-card:hover {
@@ -812,27 +748,32 @@ body {
     padding: 0;
     position: relative;
     background: transparent;
+    display: flex;
+    flex-direction: column;
+}
+
+.edit-button-row {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 5px;
+    width: 150px;
 }
 
 .edit-close-btn {
-    position: absolute;
-    top: 0px;
-    right: 0px;
     background: white;
-    border: 1px solid #999;
-    border-radius: 3px;
-    font-size: 14px;
+    border: 2px solid #f44336;
+    border-radius: 4px;
+    font-size: 16px;
     cursor: pointer;
     color: #f44336;
-    width: 18px;
-    height: 18px;
+    width: 24px;
+    height: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 0;
     line-height: 1;
     font-weight: bold;
-    z-index: 10;
 }
 
 .edit-close-btn:hover {
@@ -840,24 +781,20 @@ body {
 }
 
 .edit-delete-btn {
-    position: absolute;
-    bottom: 0px;
-    left: 0px;
     background: white;
-    border: 1px solid #999;
-    border-radius: 3px;
-    font-size: 14px;
+    border: 2px solid #ff9800;
+    border-radius: 4px;
+    font-size: 16px;
     cursor: pointer;
     color: #ff9800;
-    width: 18px;
-    height: 18px;
+    width: 24px;
+    height: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 0;
     line-height: 1;
     font-weight: bold;
-    z-index: 10;
 }
 
 .edit-delete-btn:hover {
@@ -865,24 +802,20 @@ body {
 }
 
 .edit-save-btn {
-    position: absolute;
-    bottom: 0px;
-    right: 0px;
     background: white;
-    border: 1px solid #999;
-    border-radius: 3px;
-    font-size: 14px;
+    border: 2px solid #4CAF50;
+    border-radius: 4px;
+    font-size: 16px;
     cursor: pointer;
     color: #4CAF50;
-    width: 18px;
-    height: 18px;
+    width: 24px;
+    height: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 0;
     line-height: 1;
     font-weight: bold;
-    z-index: 10;
 }
 
 .edit-save-btn:hover {
@@ -892,7 +825,9 @@ body {
 .edit-card-visual {
     position: relative;
     width: 150px;
-    height: 100px;
+    min-height: 120px;
+    height: auto;
+    max-height: 400px;
     padding: 8px 8px 4px 8px;
     border: 1px solid #999;
     border-radius: 3px;
@@ -902,34 +837,8 @@ body {
     box-sizing: border-box;
 }
 
-.edit-card-visual::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-image:
-        linear-gradient(to right, #FFB6C1 0%, #FFB6C1 100%),
-        repeating-linear-gradient(
-            to bottom,
-            transparent 0px,
-            transparent 19px,
-            #87CEEB 19px,
-            #87CEEB 20px
-        );
-    background-position: 0 20px, 0 20px;
-    background-size: 100% 1px, 100% 20px;
-    background-repeat: no-repeat, repeat;
-    border-radius: 3px;
-    z-index: 0;
-    pointer-events: none;
-}
-
 .edit-card-header,
 .edit-card-body {
-    position: relative;
-    z-index: 1;
     outline: none;
     font-family: inherit;
 }
@@ -937,9 +846,8 @@ body {
 .edit-card-header {
     font-weight: bold;
     font-size: 11px;
-    line-height: 20px;
-    height: 20px;
-    margin-bottom: 0;
+    line-height: 1.2;
+    margin-bottom: 4px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -948,11 +856,12 @@ body {
 .edit-card-body {
     font-weight: normal;
     font-size: 9px;
-    line-height: 20px;
+    line-height: 1.4;
     white-space: pre-wrap;
     word-wrap: break-word;
     flex: 1;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .edit-card-header:empty::before,

@@ -25,6 +25,11 @@ export class ViewportManager {
         // Auto-zoom settings
         this.ZOOM_SPEED = 0.002;
         this.ZOOM_DELAY_MS = 1500;
+
+        // Manual zoom tracking (for restoring after auto-zoom)
+        this.manualZoom = 1.0;
+        this.manualPan = { x: 0, y: 0 };
+        this.manualFocalPoint = { x: 0, y: 0 };
     }
 
     /**
@@ -146,33 +151,52 @@ export class ViewportManager {
     }
 
     /**
-     * Auto-pan when mouse is near edges during drag
-     * @param {MouseEvent} e - Mouse event
+     * Auto-pan when card is dragged beyond half the distance to viewport edge
+     * @param {number} startX - Card's initial workspace X position
+     * @param {number} startY - Card's initial workspace Y position
+     * @param {number} currentX - Card's current workspace X position
+     * @param {number} currentY - Card's current workspace Y position
      * @returns {boolean} true if panning occurred
      */
-    autoPan(e) {
+    autoPan(startX, startY, currentX, currentY) {
         const rect = this.viewport.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
 
-        const edgeThresholdX = rect.width * this.EDGE_RATIO;
-        const edgeThresholdY = rect.height * this.EDGE_RATIO;
+        // Convert workspace positions to screen coordinates to measure distance to edges
+        const startScreenX = (startX * this.currentZoom) + this.currentPan.x;
+        const startScreenY = (startY * this.currentZoom) + this.currentPan.y;
+        const currentScreenX = (currentX * this.currentZoom) + this.currentPan.x;
+        const currentScreenY = (currentY * this.currentZoom) + this.currentPan.y;
+
+        // Calculate how far the card has moved from start position
+        const movedX = currentScreenX - startScreenX;
+        const movedY = currentScreenY - startScreenY;
+
+        // Calculate distances from start position to viewport edges
+        const distToLeft = startScreenX;
+        const distToRight = rect.width - startScreenX;
+        const distToTop = startScreenY;
+        const distToBottom = rect.height - startScreenY;
 
         let didPan = false;
 
-        if (mouseX < edgeThresholdX) {
+        // Pan when moved more than half the distance toward an edge
+        if (movedX < 0 && Math.abs(movedX) > distToLeft / 2) {
+            // Moving left, passed halfway to left edge
             this.currentPan.x += this.PAN_SPEED;
             didPan = true;
         }
-        if (mouseX > rect.width - edgeThresholdX) {
+        if (movedX > 0 && movedX > distToRight / 2) {
+            // Moving right, passed halfway to right edge
             this.currentPan.x -= this.PAN_SPEED;
             didPan = true;
         }
-        if (mouseY < edgeThresholdY) {
+        if (movedY < 0 && Math.abs(movedY) > distToTop / 2) {
+            // Moving up, passed halfway to top edge
             this.currentPan.y += this.PAN_SPEED;
             didPan = true;
         }
-        if (mouseY > rect.height - edgeThresholdY) {
+        if (movedY > 0 && movedY > distToBottom / 2) {
+            // Moving down, passed halfway to bottom edge
             this.currentPan.y -= this.PAN_SPEED;
             didPan = true;
         }
@@ -191,5 +215,26 @@ export class ViewportManager {
         const rect = this.viewport.getBoundingClientRect();
         return screenX >= rect.left && screenX <= rect.right &&
                screenY >= rect.top && screenY <= rect.bottom;
+    }
+
+    /**
+     * Save current zoom/pan as manual zoom level
+     */
+    saveManualZoom() {
+        this.manualZoom = this.currentZoom;
+        this.manualPan = { ...this.currentPan };
+        this.manualFocalPoint = { ...this.focalPoint };
+        debugLog.info('Saved manual zoom', { zoom: this.manualZoom });
+    }
+
+    /**
+     * Restore manual zoom level (after auto-zoom)
+     */
+    restoreManualZoom() {
+        this.currentZoom = this.manualZoom;
+        this.currentPan = { ...this.manualPan };
+        this.focalPoint = { ...this.manualFocalPoint };
+        this.applyTransform();
+        debugLog.info('Restored manual zoom', { zoom: this.manualZoom });
     }
 }
