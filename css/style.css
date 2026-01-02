@@ -919,3 +919,115 @@ body {
 .log-content .log-level-error {
     color: #F48771;
 }
+/* Identity Selection Dialog */
+.identity-options {
+    margin: 20px 0;
+    text-align: left;
+}
+
+.identity-option {
+    margin: 10px 0;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+}
+
+.identity-option:hover {
+    background-color: #f0f0f0;
+}
+
+.identity-option input[type="radio"] {
+    margin-right: 10px;
+    cursor: pointer;
+}
+
+.identity-option label {
+    cursor: pointer;
+    flex: 1;
+    margin: 0;
+}
+
+.identity-other-fields {
+    margin: 15px 0;
+    padding: 15px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #f9f9f9;
+}
+
+.identity-other-fields label {
+    display: block;
+    margin-top: 10px;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.identity-other-fields input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+.identity-error {
+    margin: 10px 0;
+    padding: 10px;
+    background-color: #ffebee;
+    border: 1px solid #ef5350;
+    border-radius: 4px;
+    color: #c62828;
+}
+
+/* User Registration Dialog */
+.register-fields {
+    margin: 20px 0;
+    text-align: left;
+}
+
+.register-fields label {
+    display: block;
+    margin-top: 10px;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.register-fields input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+.register-fields input:focus {
+    outline: none;
+    border-color: #4CAF50;
+    box-shadow: 0 0 5px rgba(76, 175, 80, 0.3);
+}
+
+.register-error {
+    margin: 10px 0;
+    padding: 10px;
+    background-color: #ffebee;
+    border: 1px solid #ef5350;
+    border-radius: 4px;
+    color: #c62828;
+}
+
+/* Read-only indicator */
+.read-only-banner {
+    position: fixed;
+    top: 40px;
+    left: 0;
+    right: 0;
+    background-color: #ff9800;
+    color: white;
+    padding: 8px;
+    text-align: center;
+    z-index: 9999;
+    font-weight: bold;
+}

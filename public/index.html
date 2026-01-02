@@ -122,6 +122,49 @@
         </div>
     </div>
 
+    <!-- Identity Selection Dialog -->
+    <div id="identity-modal" class="modal">
+        <div class="modal-content">
+            <h2 id="identity-modal-title">Select Identity</h2>
+            <p id="identity-modal-message"></p>
+            <div id="identity-options" class="identity-options">
+                <!-- Radio buttons will be added dynamically -->
+            </div>
+            <div id="identity-other-fields" class="identity-other-fields" style="display: none;">
+                <label for="identity-name">Name:</label>
+                <input type="text" id="identity-name" placeholder="Full Name">
+                <label for="identity-initials">Initials:</label>
+                <input type="text" id="identity-initials" placeholder="ABC" maxlength="4">
+            </div>
+            <div id="identity-error" class="identity-error" style="display: none;"></div>
+            <div class="modal-buttons">
+                <button id="identity-ok">OK</button>
+                <button id="identity-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Registration Dialog -->
+    <div id="register-modal" class="modal">
+        <div class="modal-content">
+            <h2>Register</h2>
+            <p id="register-message">To continue, please register:</p>
+            <div class="register-fields">
+                <label for="register-email">Email:</label>
+                <input type="email" id="register-email" placeholder="your@email.com" required>
+                <label for="register-name">Name:</label>
+                <input type="text" id="register-name" placeholder="Full Name" required>
+                <label for="register-initials">Initials:</label>
+                <input type="text" id="register-initials" placeholder="ABC" maxlength="4" required>
+            </div>
+            <div id="register-error" class="register-error" style="display: none;"></div>
+            <div class="modal-buttons">
+                <button id="register-ok">Register</button>
+                <button id="register-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Debug Log Dialog -->
     <div id="log-modal" class="modal">
         <div class="modal-content log-modal-content">

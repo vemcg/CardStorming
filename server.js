@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 
@@ -9,13 +10,18 @@ const httpServer = createServer(app);
 const io = new Server(httpServer);
 const PORT = process.env.PORT || 3000;
 
-// Data directory for persistent storage
+// Data directories for persistent storage
 const DATA_DIR = path.join(__dirname, 'data', 'projects');
+const USERS_DIR = path.join(__dirname, 'data', 'users');
 
-// Ensure data directory exists
+// Ensure data directories exist
 if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     console.log('Created data directory:', DATA_DIR);
+}
+if (!fs.existsSync(USERS_DIR)) {
+    fs.mkdirSync(USERS_DIR, { recursive: true });
+    console.log('Created users directory:', USERS_DIR);
 }
 
 // Server-side state - organized by project ID (in-memory, authoritative)
@@ -177,6 +183,242 @@ function deserializeProject(data) {
     };
 }
 
+// ============================================================================
+// USER MANAGEMENT
+// ============================================================================
+
+// Generate hash from email
+function generateUserHash(email) {
+    return crypto.createHash('sha256').update(email.toLowerCase().trim()).digest('hex');
+}
+
+// Save user to disk
+function saveUserToDisk(userHash, userData) {
+    const filePath = path.join(USERS_DIR, `${userHash}.json`);
+    const data = JSON.stringify(userData, null, 2);
+
+    try {
+        fs.writeFileSync(filePath, data, 'utf8');
+        console.log(`Saved user ${userHash} to disk`);
+        return true;
+    } catch (err) {
+        console.error(`Error saving user ${userHash}:`, err);
+        return false;
+    }
+}
+
+// Load user from disk
+function loadUserFromDisk(userHash) {
+    const filePath = path.join(USERS_DIR, `${userHash}.json`);
+
+    try {
+        if (fs.existsSync(filePath)) {
+            const data = fs.readFileSync(filePath, 'utf8');
+            const userData = JSON.parse(data);
+            console.log(`Loaded user ${userHash} from disk`);
+            return userData;
+        }
+    } catch (err) {
+        console.error(`Error loading user ${userHash}:`, err);
+    }
+
+    return null;
+}
+
+// Create new user
+function createUser(email, name, initials) {
+    const userHash = generateUserHash(email);
+
+    // Check if user already exists
+    const existing = loadUserFromDisk(userHash);
+    if (existing) {
+        console.log(`User ${userHash} already exists`);
+        return { userHash, user: existing, isNew: false };
+    }
+
+    const userData = {
+        userHash,
+        email: email.toLowerCase().trim(),
+        defaultName: name.trim(),
+        defaultInitials: initials.trim().toUpperCase(),
+        projects: [],
+        identities: {}
+    };
+
+    saveUserToDisk(userHash, userData);
+    console.log(`Created new user ${userHash}`);
+
+    return { userHash, user: userData, isNew: true };
+}
+
+// Add project to user's project list
+function addProjectToUser(userHash, projectHash) {
+    const userData = loadUserFromDisk(userHash);
+    if (!userData) {
+        console.error(`User ${userHash} not found`);
+        return false;
+    }
+
+    if (!userData.projects.includes(projectHash)) {
+        userData.projects.push(projectHash);
+        saveUserToDisk(userHash, userData);
+        console.log(`Added project ${projectHash} to user ${userHash}`);
+    }
+
+    return true;
+}
+
+// Add identity to user for a specific project
+function addIdentityToUser(userHash, projectHash, name, initials) {
+    const userData = loadUserFromDisk(userHash);
+    if (!userData) {
+        console.error(`User ${userHash} not found`);
+        return false;
+    }
+
+    userData.identities[projectHash] = {
+        name: name.trim(),
+        initials: initials.trim().toUpperCase()
+    };
+
+    saveUserToDisk(userHash, userData);
+    console.log(`Added identity for project ${projectHash} to user ${userHash}`);
+
+    return true;
+}
+
+// Get all identities for a user (default + project-specific)
+function getUserIdentities(userHash) {
+    const userData = loadUserFromDisk(userHash);
+    if (!userData) return [];
+
+    const identities = [
+        {
+            name: userData.defaultName,
+            initials: userData.defaultInitials,
+            isDefault: true
+        }
+    ];
+
+    // Add unique project-specific identities
+    const seen = new Set([`${userData.defaultName}|${userData.defaultInitials}`]);
+
+    for (const [projectHash, identity] of Object.entries(userData.identities)) {
+        const key = `${identity.name}|${identity.initials}`;
+        if (!seen.has(key)) {
+            identities.push({
+                name: identity.name,
+                initials: identity.initials,
+                isDefault: false
+            });
+            seen.add(key);
+        }
+    }
+
+    return identities;
+}
+
+// Check if name/initials pair conflicts with existing users in project
+function checkIdentityConflict(projectHash, name, initials, excludeUserHash = null) {
+    const project = getProject(projectHash);
+    if (!project.users) {
+        project.users = new Map();
+    }
+
+    // Convert initials to uppercase for comparison
+    const normalizedInitials = initials.trim().toUpperCase();
+
+    // Check if this exact initials already exists for a different user
+    for (const [userInitials, userData] of project.users.entries()) {
+        if (userInitials === normalizedInitials) {
+            // If it's the same user (excludeUserHash matches), no conflict
+            if (excludeUserHash && userData.userHash === excludeUserHash) {
+                return { conflict: false };
+            }
+            // Different user with same initials - conflict
+            return {
+                conflict: true,
+                existingName: userData.name,
+                existingInitials: userInitials
+            };
+        }
+    }
+
+    return { conflict: false };
+}
+
+// Add user to project ACL
+function addUserToProject(projectHash, userHash, name, initials) {
+    const project = getProject(projectHash);
+    if (!project.users) {
+        project.users = new Map();
+    }
+
+    const normalizedInitials = initials.trim().toUpperCase();
+
+    // Check for conflicts
+    const conflictCheck = checkIdentityConflict(projectHash, name, normalizedInitials, userHash);
+    if (conflictCheck.conflict) {
+        return {
+            success: false,
+            error: 'CONFLICT',
+            message: `Initials "${normalizedInitials}" already used by ${conflictCheck.existingName}`
+        };
+    }
+
+    // Add user to project
+    project.users.set(normalizedInitials, {
+        userHash,
+        name: name.trim(),
+        socketId: null // Will be set when user connects
+    });
+
+    markProjectDirty(projectHash);
+    console.log(`Added user ${userHash} to project ${projectHash} as ${name} (${normalizedInitials})`);
+
+    return { success: true };
+}
+
+// Get user's identity in a specific project
+function getUserIdentityInProject(userHash, projectHash) {
+    const project = getProject(projectHash);
+    if (!project.users) return null;
+
+    // Find the user in the project
+    for (const [initials, userData] of project.users.entries()) {
+        if (userData.userHash === userHash) {
+            return {
+                name: userData.name,
+                initials: initials
+            };
+        }
+    }
+
+    return null;
+}
+
+// Get all identities a user has in a specific project
+function getUserIdentitiesInProject(userHash, projectHash) {
+    const project = getProject(projectHash);
+    if (!project.users) return [];
+
+    const identities = [];
+
+    for (const [initials, userData] of project.users.entries()) {
+        if (userData.userHash === userHash) {
+            identities.push({
+                name: userData.name,
+                initials: initials
+            });
+        }
+    }
+
+    return identities;
+}
+
+// Middleware
+app.use(express.json()); // Parse JSON request bodies
+
 // Serve static files with correct MIME types for ES6 modules
 app.use('/css', express.static(path.join(__dirname, 'css')));
 app.use('/js', express.static(path.join(__dirname, 'js'), {
@@ -192,6 +434,125 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Routes
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ============================================================================
+// USER API ENDPOINTS
+// ============================================================================
+
+// Register new user or get existing user
+app.post('/api/user/register', (req, res) => {
+    const { email, name, initials } = req.body;
+
+    if (!email || !name || !initials) {
+        return res.status(400).json({
+            error: 'Missing required fields',
+            required: ['email', 'name', 'initials']
+        });
+    }
+
+    const result = createUser(email, name, initials);
+    res.json(result);
+});
+
+// Get user profile
+app.get('/api/user/:userHash', (req, res) => {
+    const { userHash } = req.params;
+    const userData = loadUserFromDisk(userHash);
+
+    if (!userData) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(userData);
+});
+
+// Get all available identities for a user
+app.get('/api/user/:userHash/identities', (req, res) => {
+    const { userHash } = req.params;
+    const identities = getUserIdentities(userHash);
+
+    if (identities.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ identities });
+});
+
+// Get user's projects
+app.get('/api/user/:userHash/projects', (req, res) => {
+    const { userHash } = req.params;
+    const userData = loadUserFromDisk(userHash);
+
+    if (!userData) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ projects: userData.projects });
+});
+
+// Check if identity conflicts in a project
+app.post('/api/project/:projectHash/check-identity', (req, res) => {
+    const { projectHash } = req.params;
+    const { name, initials, userHash } = req.body;
+
+    if (!initials) {
+        return res.status(400).json({ error: 'Missing initials' });
+    }
+
+    const result = checkIdentityConflict(projectHash, name, initials, userHash);
+    res.json(result);
+});
+
+// Add user to project (join project)
+app.post('/api/project/:projectHash/users', (req, res) => {
+    const { projectHash } = req.params;
+    const { userHash, name, initials } = req.body;
+
+    if (!userHash || !name || !initials) {
+        return res.status(400).json({
+            error: 'Missing required fields',
+            required: ['userHash', 'name', 'initials']
+        });
+    }
+
+    const result = addUserToProject(projectHash, userHash, name, initials);
+
+    if (result.success) {
+        // Add project to user's project list
+        addProjectToUser(userHash, projectHash);
+
+        // Add identity to user profile
+        addIdentityToUser(userHash, projectHash, name, initials);
+    }
+
+    res.json(result);
+});
+
+// Get user's identities in a specific project
+app.get('/api/project/:projectHash/user/:userHash/identities', (req, res) => {
+    const { projectHash, userHash } = req.params;
+    const identities = getUserIdentitiesInProject(userHash, projectHash);
+
+    res.json({ identities });
+});
+
+// Get all users in a project
+app.get('/api/project/:projectHash/users', (req, res) => {
+    const { projectHash } = req.params;
+    const project = getProject(projectHash);
+
+    if (!project.users) {
+        return res.json({ users: [] });
+    }
+
+    const users = Array.from(project.users.entries()).map(([initials, userData]) => ({
+        initials,
+        name: userData.name,
+        userHash: userData.userHash
+    }));
+
+    res.json({ users });
 });
 
 // Admin route to reset all projects
