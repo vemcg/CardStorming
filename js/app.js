@@ -448,33 +448,142 @@ function showIdentityModal(projectId) {
 // MENU HANDLERS
 // ============================================================================
 
-function populateOpenSubmenu() {
+async function openProjectWithIdentitySelection(projectId) {
+    try {
+        // Check if user has identities in this project
+        const projectIdentities = await auth.getProjectIdentities(projectId);
+
+        if (projectIdentities.length > 0) {
+            // User is already a member - select identity
+            const identity = await showIdentityDialog(
+                projectIdentities.map(id => ({
+                    name: id.name,
+                    initials: id.initials,
+                    isDefault: false
+                })),
+                'Select Identity',
+                'You are a member of this project as:',
+                async (name, initials) => {
+                    // Check conflicts in this project
+                    const result = await auth.checkIdentityConflict(projectId, name, initials);
+                    if (result.conflict) {
+                        return {
+                            conflict: true,
+                            message: `Initials "${initials}" already used by ${result.existingName}`
+                        };
+                    }
+                    return { conflict: false };
+                }
+            );
+
+            auth.setCurrentIdentity(identity.name, identity.initials);
+            currentUserInitials = identity.initials;
+
+            if (identity.isNew) {
+                // Adding new identity to existing project membership
+                await auth.joinProject(projectId, identity.name, identity.initials);
+            }
+        } else {
+            // Not a member yet - should not happen if filtering worked
+            alert('You do not have access to this project');
+            return;
+        }
+
+        // Open project
+        openProject(projectId);
+
+    } catch (err) {
+        if (err.message !== 'Identity selection cancelled') {
+            console.error('Error opening project:', err);
+            alert('Failed to open project: ' + err.message);
+        }
+    }
+}
+
+async function populateOpenSubmenu() {
     const openSubmenu = document.getElementById('open-submenu');
     if (!openSubmenu) return;
 
-    const knownProjects = getKnownProjects();
-    const projectIds = Object.keys(knownProjects);
+    openSubmenu.innerHTML = '<div class="submenu-loading">Loading...</div>';
 
-    if (projectIds.length === 0) {
-        openSubmenu.innerHTML = '<a href="#" class="disabled-item">No projects</a>';
-        return;
-    }
+    try {
+        const knownProjects = getKnownProjects();
+        let userProjects = [];
+        let unclaimedProjects = [];
 
-    openSubmenu.innerHTML = '';
-    projectIds.forEach(projectId => {
-        const projectData = knownProjects[projectId];
-        // Handle both string and object formats
-        const projectName = typeof projectData === 'string' ? projectData : projectData.name;
+        if (auth.isAuthenticated()) {
+            // Get user's projects from server
+            userProjects = await auth.getProjects();
+        }
 
-        const link = document.createElement('a');
-        link.href = '#';
-        link.textContent = projectName;
-        link.addEventListener('click', (e) => {
-            e.preventDefault();
-            openProject(projectId);
+        // Get list of all projects with user counts
+        const response = await fetch('/api/projects/list');
+        const { projects } = await response.json();
+
+        // Separate into user's projects and unclaimed
+        const userProjectSet = new Set(userProjects);
+
+        projects.forEach(project => {
+            if (userProjectSet.has(project.id)) {
+                // Already in user's list
+            } else if (project.userCount === 0) {
+                // Unclaimed project
+                unclaimedProjects.push(project);
+            }
+            // Projects with users that aren't this user are not shown
         });
-        openSubmenu.appendChild(link);
-    });
+
+        // Build submenu
+        openSubmenu.innerHTML = '';
+
+        // Section 1: User's Projects
+        if (userProjects.length > 0) {
+            const userHeader = document.createElement('div');
+            userHeader.className = 'submenu-header';
+            userHeader.textContent = 'My Projects';
+            openSubmenu.appendChild(userHeader);
+
+            userProjects.forEach(projectId => {
+                const link = document.createElement('a');
+                link.href = '#';
+                link.textContent = knownProjects[projectId] || 'Unnamed Project';
+                link.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    await openProjectWithIdentitySelection(projectId);
+                });
+                openSubmenu.appendChild(link);
+            });
+        }
+
+        // Section 2: Unclaimed Projects
+        if (unclaimedProjects.length > 0) {
+            const unclaimedHeader = document.createElement('div');
+            unclaimedHeader.className = 'submenu-header';
+            unclaimedHeader.textContent = 'Unclaimed Projects';
+            openSubmenu.appendChild(unclaimedHeader);
+
+            unclaimedProjects.forEach(project => {
+                const link = document.createElement('a');
+                link.href = '#';
+                link.textContent = knownProjects[project.id] || 'Unnamed Project';
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    // Open unclaimed project (will open read-only, then prompt to join)
+                    openProject(project.id);
+                });
+                openSubmenu.appendChild(link);
+            });
+        }
+
+        // No projects at all
+        if (userProjects.length === 0 && unclaimedProjects.length === 0) {
+            openSubmenu.innerHTML = '<a href="#" class="disabled-item">No projects available</a>';
+        }
+
+    } catch (err) {
+        console.error('Error populating projects:', err);
+        openSubmenu.innerHTML = '<a href="#" class="disabled-item">Error loading projects</a>';
+    }
 }
 
 function setupMenuHandlers() {
@@ -498,9 +607,48 @@ function setupMenuHandlers() {
     }
 
     if (newMenuItem) {
-        newMenuItem.addEventListener('click', (e) => {
+        newMenuItem.addEventListener('click', async (e) => {
             e.preventDefault();
-            openProject(generateProjectId());
+
+            try {
+                // Check if user is authenticated
+                if (!auth.isAuthenticated()) {
+                    // Show registration dialog
+                    const result = await showRegistrationDialog('To create a project, please register:');
+                    await auth.register(result.email, result.name, result.initials);
+                }
+
+                // Show identity selection
+                const identities = await auth.getIdentities();
+                const identity = await showIdentityDialog(
+                    identities,
+                    'Select Identity for New Project',
+                    'Choose which identity to use:',
+                    async (name, initials) => {
+                        // Conflict checker - for new project, no conflicts possible
+                        return { conflict: false };
+                    }
+                );
+
+                // Create project
+                const projectId = generateProjectId();
+
+                // Set current identity
+                auth.setCurrentIdentity(identity.name, identity.initials);
+                currentUserInitials = identity.initials;
+
+                // Join project with this identity
+                await auth.joinProject(projectId, identity.name, identity.initials);
+
+                // Open project
+                openProject(projectId);
+
+            } catch (err) {
+                if (err.message !== 'Registration cancelled' && err.message !== 'Identity selection cancelled') {
+                    console.error('Error creating project:', err);
+                    alert('Failed to create project: ' + err.message);
+                }
+            }
         });
     }
 
