@@ -152,17 +152,6 @@ async function cleanupInvalidProjects() {
     }
 }
 
-function getUserIdentity(projectId) {
-    const key = `project_${projectId}_user`;
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : null;
-}
-
-function saveUserIdentity(projectId, initials, name) {
-    const key = `project_${projectId}_user`;
-    localStorage.setItem(key, JSON.stringify({ initials, name }));
-}
-
 // ============================================================================
 // DATA MIGRATION
 // ============================================================================
@@ -273,36 +262,22 @@ async function openProject(projectId) {
         });
     }
 
-    const userIdentity = getUserIdentity(projectId);
-    if (userIdentity) {
-        currentUserInitials = userIdentity.initials;
-
-        // Try to register with stored credentials
-        const attemptRegistration = (retryCount = 0) => {
+    // Register user with socket.io if authenticated
+    if (auth.isAuthenticated() && auth.hasWriteAccess()) {
+        const identity = auth.getCurrentIdentity();
+        if (identity && socket && socket.connected) {
             socket.emit('user:register', {
-                initials: userIdentity.initials,
-                name: userIdentity.name,
+                initials: identity.initials,
+                name: identity.name,
                 projectId: projectId
             }, (response) => {
-                if (!response.success) {
-                    // If initials are taken and we haven't retried, wait and retry once
-                    if (retryCount === 0 && response.message.includes('already taken')) {
-                        debugLog.warn('Registration failed, retrying in 500ms', response);
-                        setTimeout(() => attemptRegistration(1), 500);
-                    } else {
-                        // After retry or other error, show identity modal
-                        debugLog.error('Failed to register returning user', response);
-                        showIdentityModal(projectId);
-                    }
+                if (response.success) {
+                    debugLog.info('Registered with socket.io', { initials: identity.initials });
                 } else {
-                    debugLog.info('Successfully registered returning user', { initials: userIdentity.initials });
+                    debugLog.error('Socket.io registration failed', response);
                 }
             });
-        };
-
-        attemptRegistration();
-    } else {
-        showIdentityModal(projectId);
+        }
     }
 
     const shareBtn = document.getElementById('share-btn');
@@ -431,43 +406,6 @@ function updateUIForAuthState() {
     debugLog.info('UI updated for auth state', { authenticated, hasProject, hasWriteAccess });
 }
 
-function showIdentityModal(projectId) {
-    // Simple prompt-based identity collection (TODO: Add proper modal UI)
-    const name = prompt('Enter your name:');
-    if (!name) {
-        // User cancelled - close project
-        closeProject();
-        return;
-    }
-
-    const initials = prompt('Enter your initials (2-3 characters):');
-    if (!initials) {
-        // User cancelled - close project
-        closeProject();
-        return;
-    }
-
-    const normalizedInitials = initials.trim().toUpperCase();
-    const normalizedName = name.trim();
-
-    if (normalizedInitials && normalizedName) {
-        currentUserInitials = normalizedInitials;
-        saveUserIdentity(projectId, normalizedInitials, normalizedName);
-        socket.emit('user:register', {
-            initials: normalizedInitials,
-            name: normalizedName,
-            projectId: projectId
-        }, (response) => {
-            if (!response.success) {
-                alert('Failed to register: ' + response.message);
-                closeProject();
-            }
-        });
-    } else {
-        closeProject();
-    }
-}
-
 // ============================================================================
 // WRITE ACCESS CONTROL
 // ============================================================================
@@ -583,8 +521,8 @@ async function populateOpenSubmenu() {
     openSubmenu.innerHTML = '<div class="submenu-loading">Loading...</div>';
 
     try {
-        const knownProjects = getKnownProjects();
         let userProjects = [];
+        let myProjects = [];
         let unclaimedProjects = [];
 
         if (auth.isAuthenticated()) {
@@ -592,16 +530,20 @@ async function populateOpenSubmenu() {
             userProjects = await auth.getProjects();
         }
 
-        // Get list of all projects with user counts
+        // Get list of all projects with user counts and names from server
         const response = await fetch('/api/projects/list');
         const { projects } = await response.json();
+
+        // Create a map for easy lookup
+        const projectMap = new Map(projects.map(p => [p.id, p]));
 
         // Separate into user's projects and unclaimed
         const userProjectSet = new Set(userProjects);
 
         projects.forEach(project => {
             if (userProjectSet.has(project.id)) {
-                // Already in user's list
+                // User's project
+                myProjects.push(project);
             } else if (project.userCount === 0) {
                 // Unclaimed project
                 unclaimedProjects.push(project);
@@ -613,19 +555,19 @@ async function populateOpenSubmenu() {
         openSubmenu.innerHTML = '';
 
         // Section 1: User's Projects
-        if (userProjects.length > 0) {
+        if (myProjects.length > 0) {
             const userHeader = document.createElement('div');
             userHeader.className = 'submenu-header';
             userHeader.textContent = 'My Projects';
             openSubmenu.appendChild(userHeader);
 
-            userProjects.forEach(projectId => {
+            myProjects.forEach(project => {
                 const link = document.createElement('a');
                 link.href = '#';
-                link.textContent = knownProjects[projectId] || 'Unnamed Project';
+                link.textContent = project.name;
                 link.addEventListener('click', async (e) => {
                     e.preventDefault();
-                    await openProjectWithIdentitySelection(projectId);
+                    await openProjectWithIdentitySelection(project.id);
                 });
                 openSubmenu.appendChild(link);
             });
@@ -641,7 +583,7 @@ async function populateOpenSubmenu() {
             unclaimedProjects.forEach(project => {
                 const link = document.createElement('a');
                 link.href = '#';
-                link.textContent = knownProjects[project.id] || 'Unnamed Project';
+                link.textContent = project.name;
                 link.addEventListener('click', (e) => {
                     e.preventDefault();
                     // Open unclaimed project (will open read-only, then prompt to join)
@@ -652,7 +594,7 @@ async function populateOpenSubmenu() {
         }
 
         // No projects at all
-        if (userProjects.length === 0 && unclaimedProjects.length === 0) {
+        if (myProjects.length === 0 && unclaimedProjects.length === 0) {
             openSubmenu.innerHTML = '<a href="#" class="disabled-item">No projects available</a>';
         }
 
@@ -2011,18 +1953,19 @@ document.addEventListener('DOMContentLoaded', async function() {
     socket.on('reconnect', () => {
         debugLog.info('Socket reconnected', { socketId: socket.id });
 
-        // Re-register user if project is open
-        if (isProjectOpen && currentProjectId) {
-            const userIdentity = getUserIdentity(currentProjectId);
-            if (userIdentity) {
-                currentUserInitials = userIdentity.initials;
+        // Re-register user if project is open and authenticated
+        if (isProjectOpen && currentProjectId && auth.isAuthenticated() && auth.hasWriteAccess()) {
+            const identity = auth.getCurrentIdentity();
+            if (identity) {
                 socket.emit('user:register', {
-                    initials: userIdentity.initials,
-                    name: userIdentity.name,
+                    initials: identity.initials,
+                    name: identity.name,
                     projectId: currentProjectId
                 }, (response) => {
                     if (!response.success) {
                         debugLog.error('Failed to re-register on reconnect', response);
+                    } else {
+                        debugLog.info('Re-registered on reconnect', { initials: identity.initials });
                     }
                 });
             }

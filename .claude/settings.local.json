@@ -24,7 +24,12 @@
       "Bash(powershell -Command \"Stop-Process -Id 34472, 45180 -Force\")",
       "Bash(dir:*)",
       "Bash(powershell -Command \"Stop-Process -Name node -Force\")",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(ls:*)",
+      "Bash(curl:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(done)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

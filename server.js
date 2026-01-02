@@ -146,7 +146,8 @@ function serializeProject(project) {
         ...project,
         users: Array.from(project.users.entries()).map(([initials, data]) => ({
             initials,
-            name: data.name
+            name: data.name,
+            userHash: data.userHash // Include userHash for new auth system
         }))
     };
 }
@@ -155,7 +156,11 @@ function serializeProject(project) {
 function deserializeProject(data) {
     const users = new Map();
     if (data.users && Array.isArray(data.users)) {
-        data.users.forEach(u => users.set(u.initials, { name: u.name, socketId: null }));
+        data.users.forEach(u => users.set(u.initials, {
+            name: u.name,
+            userHash: u.userHash, // Include userHash if present (new auth system)
+            socketId: null
+        }));
     }
 
     // Determine version (old projects won't have this field)
@@ -565,8 +570,16 @@ app.get('/api/projects/list', (req, res) => {
             const projectId = file.replace('.json', '');
             const project = getProject(projectId);
 
-            // Count users
-            const userCount = project.users ? project.users.size : 0;
+            // Count users - only count users with userHash (new auth system)
+            // Old users from before the auth system don't have userHash
+            let userCount = 0;
+            if (project.users instanceof Map) {
+                for (const [initials, userData] of project.users.entries()) {
+                    if (userData.userHash) {
+                        userCount++;
+                    }
+                }
+            }
 
             return {
                 id: projectId,
