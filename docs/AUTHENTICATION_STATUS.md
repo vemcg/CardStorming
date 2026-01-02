@@ -22,6 +22,15 @@ Complete user authentication and identity management system for CardStorming. Al
    - Complete step-by-step integration instructions
    - INTEGRATION_TODO.md
 
+4. **Add comprehensive status documentation for auth system** - 4dfdb19
+   - AUTHENTICATION_STATUS.md with complete overview
+   - User flows, data structures, testing checklist
+
+5. **Add unclaimed projects feature to File > Open menu** - a313576
+   - GET /api/projects/list endpoint
+   - Two-section menu: "My Projects" + "Unclaimed Projects"
+   - Natural migration strategy for legacy projects
+
 ## What's Implemented
 
 ### ✅ Server-Side (100% Complete)
@@ -38,7 +47,7 @@ Complete user authentication and identity management system for CardStorming. Al
 - Conflict detection for duplicate initials
 - Multiple identities per user in same project
 
-**API Endpoints (9 total):**
+**API Endpoints (10 total):**
 ```
 POST   /api/user/register
 GET    /api/user/:userHash
@@ -48,6 +57,7 @@ POST   /api/project/:projectHash/check-identity
 POST   /api/project/:projectHash/users
 GET    /api/project/:projectHash/user/:userHash/identities
 GET    /api/project/:projectHash/users
+GET    /api/projects/list
 ```
 
 ### ✅ Client-Side Foundation (100% Complete)
@@ -181,13 +191,28 @@ Once integrated, test:
 3. **Fix any bugs** - Iterate on edge cases
 4. **Merge to main** - Once stable and tested
 
-## Migration (Future)
+## Legacy Project Migration
 
-Eventually add admin link to claim all existing projects:
-- Creates user for admin
-- Adds admin to all project ACLs
-- Updates all cards with admin initials
-- One-time operation
+No special migration tool needed! The File > Open menu naturally handles legacy projects:
+
+**Two-Section Menu:**
+1. **My Projects** - Projects user is a member of
+2. **Unclaimed Projects** - Legacy projects with no users (userCount === 0)
+
+**Migration Flow:**
+1. User opens File > Open menu
+2. Sees "Unclaimed Projects" section with all legacy projects
+3. Clicks an unclaimed project → Opens read-only
+4. Tries to edit anything → Registration prompt (if needed)
+5. Selects identity → Joins project → Claims ownership
+6. Project moves to "My Projects" section
+
+**Benefits:**
+- No special admin tools needed
+- Natural, discoverable UX
+- User claims projects as they use them
+- No bulk migration required
+- Gradual, organic ownership assignment
 
 ## Files Modified
 
