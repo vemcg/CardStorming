@@ -485,30 +485,34 @@ export function showWormholeNamingDialog() {
 /**
  * Show dialog to edit a wormhole's name
  * @param {string} currentName - The current name of the wormhole
+ * @param {number} x - Screen X coordinate to position dialog
+ * @param {number} y - Screen Y coordinate to position dialog
  * @returns {Promise<string>} Promise that resolves with the new name or rejects if cancelled
  */
-export function showWormholeEditDialog(currentName = '') {
+export function showWormholeEditDialog(currentName = '', x = 0, y = 0) {
     return new Promise((resolve, reject) => {
-        // Create modal elements dynamically
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.style.display = 'block';
+        // Create overlay to capture clicks outside
+        const overlay = document.createElement('div');
+        overlay.style.position = 'fixed';
+        overlay.style.top = '0';
+        overlay.style.left = '0';
+        overlay.style.width = '100%';
+        overlay.style.height = '100%';
+        overlay.style.zIndex = '10000';
+        overlay.style.backgroundColor = 'transparent';
 
-        const modalContent = document.createElement('div');
-        modalContent.className = 'modal-content';
-
-        const title = document.createElement('h2');
-        title.textContent = 'Edit Wormhole Name';
-        modalContent.appendChild(title);
+        // Create popup dialog
+        const popup = document.createElement('div');
+        popup.style.position = 'fixed';
+        popup.style.backgroundColor = 'white';
+        popup.style.border = '2px solid #333';
+        popup.style.borderRadius = '8px';
+        popup.style.padding = '16px';
+        popup.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+        popup.style.zIndex = '10001';
+        popup.style.minWidth = '250px';
 
         const form = document.createElement('form');
-
-        const label = document.createElement('label');
-        label.textContent = 'Wormhole Name:';
-        label.style.display = 'block';
-        label.style.marginBottom = '8px';
-        label.style.fontWeight = 'bold';
-        form.appendChild(label);
 
         const nameInput = document.createElement('input');
         nameInput.type = 'text';
@@ -516,13 +520,17 @@ export function showWormholeEditDialog(currentName = '') {
         nameInput.placeholder = 'Enter wormhole name';
         nameInput.style.width = '100%';
         nameInput.style.padding = '8px';
-        nameInput.style.marginBottom = '16px';
+        nameInput.style.marginBottom = '12px';
         nameInput.style.boxSizing = 'border-box';
+        nameInput.style.fontSize = '14px';
+        nameInput.style.border = '1px solid #ccc';
+        nameInput.style.borderRadius = '4px';
         form.appendChild(nameInput);
 
         const errorEl = document.createElement('div');
         errorEl.style.color = 'red';
-        errorEl.style.marginBottom = '16px';
+        errorEl.style.fontSize = '12px';
+        errorEl.style.marginBottom = '12px';
         errorEl.style.display = 'none';
         form.appendChild(errorEl);
 
@@ -534,19 +542,43 @@ export function showWormholeEditDialog(currentName = '') {
         const cancelBtn = document.createElement('button');
         cancelBtn.type = 'button';
         cancelBtn.textContent = 'Cancel';
-        cancelBtn.className = 'btn-secondary';
+        cancelBtn.style.padding = '6px 12px';
+        cancelBtn.style.fontSize = '14px';
+        cancelBtn.style.cursor = 'pointer';
+        cancelBtn.style.border = '1px solid #ccc';
+        cancelBtn.style.borderRadius = '4px';
+        cancelBtn.style.backgroundColor = '#f5f5f5';
         buttonContainer.appendChild(cancelBtn);
 
         const okBtn = document.createElement('button');
         okBtn.type = 'submit';
         okBtn.textContent = 'OK';
-        okBtn.className = 'btn-primary';
+        okBtn.style.padding = '6px 12px';
+        okBtn.style.fontSize = '14px';
+        okBtn.style.cursor = 'pointer';
+        okBtn.style.border = '1px solid #007bff';
+        okBtn.style.borderRadius = '4px';
+        okBtn.style.backgroundColor = '#007bff';
+        okBtn.style.color = 'white';
         buttonContainer.appendChild(okBtn);
 
         form.appendChild(buttonContainer);
-        modalContent.appendChild(form);
-        modal.appendChild(modalContent);
-        document.body.appendChild(modal);
+        popup.appendChild(form);
+        overlay.appendChild(popup);
+        document.body.appendChild(overlay);
+
+        // Position popup near the wormhole (offset below)
+        popup.style.left = `${x}px`;
+        popup.style.top = `${y + 20}px`;
+
+        // Adjust if popup goes off screen
+        const rect = popup.getBoundingClientRect();
+        if (rect.right > window.innerWidth) {
+            popup.style.left = `${window.innerWidth - rect.width - 10}px`;
+        }
+        if (rect.bottom > window.innerHeight) {
+            popup.style.top = `${y - rect.height - 20}px`;
+        }
 
         // Focus the input and select all text
         setTimeout(() => {
@@ -555,7 +587,7 @@ export function showWormholeEditDialog(currentName = '') {
         }, 0);
 
         const cleanup = () => {
-            modal.remove();
+            overlay.remove();
         };
 
         const handleOk = () => {
@@ -582,6 +614,13 @@ export function showWormholeEditDialog(currentName = '') {
         });
 
         cancelBtn.addEventListener('click', handleCancel);
+
+        // Click outside to cancel
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                handleCancel();
+            }
+        });
 
         // Escape key to cancel
         const handleEscape = (e) => {

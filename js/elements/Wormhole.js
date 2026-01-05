@@ -106,7 +106,11 @@ export class Wormhole extends DraggableElement {
         });
 
         try {
-            const newName = await showWormholeEditDialog(this.name);
+            // Get click position for dialog placement
+            const x = e.clientX;
+            const y = e.clientY;
+
+            const newName = await showWormholeEditDialog(this.name, x, y);
 
             if (newName !== this.name) {
                 debugLog.info('Updating wormhole name', {
