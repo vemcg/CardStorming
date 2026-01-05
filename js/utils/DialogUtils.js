@@ -487,7 +487,7 @@ export function showWormholeNamingDialog() {
  * @param {string} currentName - The current name of the wormhole
  * @param {number} x - Screen X coordinate to position dialog
  * @param {number} y - Screen Y coordinate to position dialog
- * @returns {Promise<string>} Promise that resolves with the new name or rejects if cancelled
+ * @returns {Promise<string|null>} Promise that resolves with the new name, null for delete, or rejects if cancelled
  */
 export function showWormholeEditDialog(currentName = '', x = 0, y = 0) {
     return new Promise((resolve, reject) => {
@@ -537,7 +537,23 @@ export function showWormholeEditDialog(currentName = '', x = 0, y = 0) {
         const buttonContainer = document.createElement('div');
         buttonContainer.style.display = 'flex';
         buttonContainer.style.gap = '8px';
-        buttonContainer.style.justifyContent = 'flex-end';
+        buttonContainer.style.justifyContent = 'space-between';
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.style.padding = '6px 12px';
+        deleteBtn.style.fontSize = '14px';
+        deleteBtn.style.cursor = 'pointer';
+        deleteBtn.style.border = '1px solid #dc3545';
+        deleteBtn.style.borderRadius = '4px';
+        deleteBtn.style.backgroundColor = '#dc3545';
+        deleteBtn.style.color = 'white';
+        buttonContainer.appendChild(deleteBtn);
+
+        const rightButtons = document.createElement('div');
+        rightButtons.style.display = 'flex';
+        rightButtons.style.gap = '8px';
 
         const cancelBtn = document.createElement('button');
         cancelBtn.type = 'button';
@@ -548,7 +564,7 @@ export function showWormholeEditDialog(currentName = '', x = 0, y = 0) {
         cancelBtn.style.border = '1px solid #ccc';
         cancelBtn.style.borderRadius = '4px';
         cancelBtn.style.backgroundColor = '#f5f5f5';
-        buttonContainer.appendChild(cancelBtn);
+        rightButtons.appendChild(cancelBtn);
 
         const okBtn = document.createElement('button');
         okBtn.type = 'submit';
@@ -560,7 +576,9 @@ export function showWormholeEditDialog(currentName = '', x = 0, y = 0) {
         okBtn.style.borderRadius = '4px';
         okBtn.style.backgroundColor = '#007bff';
         okBtn.style.color = 'white';
-        buttonContainer.appendChild(okBtn);
+        rightButtons.appendChild(okBtn);
+
+        buttonContainer.appendChild(rightButtons);
 
         form.appendChild(buttonContainer);
         popup.appendChild(form);
@@ -608,12 +626,19 @@ export function showWormholeEditDialog(currentName = '', x = 0, y = 0) {
             reject(new Error('Wormhole edit cancelled'));
         };
 
+        const handleDelete = () => {
+            console.log('Delete button clicked in wormhole dialog');
+            cleanup();
+            resolve(null); // null indicates delete
+        };
+
         form.addEventListener('submit', (e) => {
             e.preventDefault();
             handleOk();
         });
 
         cancelBtn.addEventListener('click', handleCancel);
+        deleteBtn.addEventListener('click', handleDelete);
 
         // Click outside to cancel
         overlay.addEventListener('click', (e) => {

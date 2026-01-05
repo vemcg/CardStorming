@@ -157,16 +157,26 @@ export class Card extends DraggableElement {
             if (distance < 60) {
                 const partner = appState.wormholes.get(wormhole.partnerId);
                 if (partner) {
+                    // Calculate offset from drag start to wormhole
+                    const offsetX = this.dragStartWorkspaceX - wormhole.x;
+                    const offsetY = this.dragStartWorkspaceY - wormhole.y;
+
                     debugLog.info('Card teleported through wormhole', {
                         cardId: this.id,
                         from: wormhole.id,
-                        to: partner.id
+                        to: partner.id,
+                        dragStartPos: { x: this.dragStartWorkspaceX, y: this.dragStartWorkspaceY },
+                        wormholePos: { x: wormhole.x, y: wormhole.y },
+                        offset: { x: offsetX, y: offsetY }
                     });
 
-                    // Teleport card to partner wormhole location
-                    this.x = partner.x;
-                    this.y = partner.y;
+                    // Teleport card to partner wormhole with same relative offset
+                    this.x = partner.x + offsetX;
+                    this.y = partner.y + offsetY;
                     this.updatePosition(viewportManager);
+
+                    // Store the teleported card position for center button
+                    appState.lastTeleportedCardId = this.id;
 
                     // Emit update to server
                     if (appState.socket) {

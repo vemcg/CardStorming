@@ -1103,6 +1103,23 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Handle wormhole delete
+    socket.on('wormhole:delete', (data) => {
+        const project = getProject(projectId);
+        const { id1, id2 } = data;
+
+        // Remove both wormhole ends
+        const initialCount = project.wormholes.length;
+        project.wormholes = project.wormholes.filter(w => w.id !== id1 && w.id !== id2);
+        const finalCount = project.wormholes.length;
+
+        if (finalCount < initialCount) {
+            markProjectDirty(projectId);
+            io.to(projectId).emit('wormhole:delete', { id1, id2 });
+            console.log(`Wormhole pair deleted from project ${projectId}:`, { id1, id2, removed: initialCount - finalCount });
+        }
+    });
+
     // Handle delete all cards
     socket.on('cards:delete-all', (data) => {
         const targetProjectId = data?.projectId || projectId;

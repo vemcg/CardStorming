@@ -142,13 +142,18 @@ export class DraggableElement {
         this.y = workspacePos.y + this.dragOffsetY;
         this.updatePosition(viewportManager);
 
-        // Auto-pan based on card's distance from start position
-        viewportManager.autoPan(
-            this.dragStartWorkspaceX,
-            this.dragStartWorkspaceY,
-            this.x,
-            this.y
-        );
+        // Auto-pan only after dragging for a bit (1 second delay)
+        const dragDuration = Date.now() - this.dragStartTime;
+        const AUTO_PAN_DELAY = 1000; // ms before auto-pan activates
+
+        if (dragDuration > AUTO_PAN_DELAY) {
+            viewportManager.autoPan(
+                this.dragStartWorkspaceX,
+                this.dragStartWorkspaceY,
+                this.x,
+                this.y
+            );
+        }
 
         // Update nearest card for preview
         if (this.enableCardPreview && appState) {

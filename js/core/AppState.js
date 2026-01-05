@@ -20,6 +20,9 @@ export class AppState {
 
         // Z-index tracking
         this.maxZIndex = 1;
+
+        // Last teleported card (for center button)
+        this.lastTeleportedCardId = null;
     }
 
     /**

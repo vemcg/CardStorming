@@ -985,6 +985,22 @@ function setupZoomControls() {
 
             const currentFocal = viewportManager.focalPoint;
 
+            // If there's a last teleported card, center on it
+            if (appState.lastTeleportedCardId) {
+                const teleportedCard = appState.getCard(appState.lastTeleportedCardId);
+                if (teleportedCard) {
+                    viewportManager.centerOn(teleportedCard.x, teleportedCard.y);
+                    debugLog.info('Centered on last teleported card', {
+                        id: teleportedCard.id,
+                        x: teleportedCard.x,
+                        y: teleportedCard.y
+                    });
+                    // Clear the teleported card after centering
+                    appState.lastTeleportedCardId = null;
+                    return;
+                }
+            }
+
             // If currently at (0,0), center on last card if available
             if (currentFocal.x === 0 && currentFocal.y === 0) {
                 if (appState.cards.size > 0) {
@@ -1224,6 +1240,29 @@ function setupViewportDrag() {
         if (isPanning) {
             isPanning = false;
             viewport.style.cursor = '';
+
+            // Update focal point to match the new pan position
+            // This ensures the viewport position persists after reload
+            viewportManager.focalPoint.x = -viewportManager.currentPan.x / viewportManager.currentZoom;
+            viewportManager.focalPoint.y = -viewportManager.currentPan.y / viewportManager.currentZoom;
+
+            // Save as manual state
+            viewportManager.saveManualZoom();
+
+            // Save viewport position to localStorage
+            if (appState.projectId) {
+                const viewportState = {
+                    focalPoint: { ...viewportManager.focalPoint },
+                    zoom: viewportManager.currentZoom
+                };
+                localStorage.setItem(`viewport_${appState.projectId}`, JSON.stringify(viewportState));
+                debugLog.info('Viewport position saved to localStorage', viewportState);
+            }
+
+            debugLog.info('Viewport panned, focal point updated', {
+                focalPoint: { ...viewportManager.focalPoint },
+                pan: { ...viewportManager.currentPan }
+            });
         }
     });
 }
@@ -1778,10 +1817,24 @@ function setupSocketHandlers() {
             renderPaletteCards();
         }
 
-        // Center viewport on cards if any exist
-        debugLog.info('Checking if viewport should center on cards', { cardCount: appState.cards.size });
+        // Restore saved viewport position or center on cards
+        const savedViewportState = localStorage.getItem(`viewport_${currentProjectId}`);
 
-        if (appState.cards.size > 0) {
+        if (savedViewportState) {
+            try {
+                const viewportState = JSON.parse(savedViewportState);
+                debugLog.info('Restoring saved viewport position', viewportState);
+                viewportManager.panTo(viewportState.focalPoint.x, viewportState.focalPoint.y);
+                if (viewportState.zoom) {
+                    viewportManager.zoomTo(viewportState.zoom, viewportState.focalPoint.x, viewportState.focalPoint.y);
+                }
+            } catch (err) {
+                debugLog.error('Error restoring viewport position', err);
+            }
+        } else if (appState.cards.size > 0) {
+            // No saved position, center viewport on cards
+            debugLog.info('No saved viewport position, centering on cards', { cardCount: appState.cards.size });
+
             const cards = Array.from(appState.cards.values());
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
@@ -1909,11 +1962,35 @@ function setupSocketHandlers() {
         if (wormhole) {
             wormhole.name = data.name;
 
-            // Update the label in the DOM
+            // Update the label in the DOM (similar logic to Wormhole.onClick)
             if (wormhole.element) {
-                const label = wormhole.element.querySelector('div > div:last-child');
-                if (label && label.textContent !== undefined) {
+                const innerContainer = wormhole.element.querySelector('div');
+                let label = innerContainer ? innerContainer.querySelector('div:last-child') : null;
+
+                // Check if last child is actually a label
+                if (label) {
+                    const isLabel = label.textContent !== undefined && label.style.fontSize === '12px';
+                    if (isLabel) {
+                        label.textContent = data.name;
+                    } else {
+                        label = null;
+                    }
+                }
+
+                // Create label if it doesn't exist
+                if (!label && data.name && innerContainer) {
+                    label = document.createElement('div');
+                    label.style.fontSize = '12px';
+                    label.style.fontWeight = 'bold';
+                    label.style.color = '#333';
+                    label.style.marginTop = '5px';
+                    label.style.textAlign = 'center';
+                    label.style.maxWidth = '110px';
+                    label.style.overflow = 'hidden';
+                    label.style.textOverflow = 'ellipsis';
+                    label.style.whiteSpace = 'nowrap';
                     label.textContent = data.name;
+                    innerContainer.appendChild(label);
                 }
             }
 
@@ -1922,6 +1999,23 @@ function setupSocketHandlers() {
                 name: data.name
             });
         }
+    });
+
+    // Wormhole deleted by another user (or us)
+    socket.on('wormhole:delete', (data) => {
+        const { id1, id2 } = data;
+
+        // Remove both wormhole ends
+        [id1, id2].forEach(id => {
+            const wormhole = appState.getWormhole(id);
+            if (wormhole) {
+                if (wormhole.element) {
+                    wormhole.element.remove();
+                }
+                appState.removeWormhole(id);
+                debugLog.info('Wormhole deleted from server', { id });
+            }
+        });
     });
 
     // Card deleted by another user (or us)
@@ -2082,6 +2176,14 @@ function setupWormholeDragHandlers(wormhole) {
 
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
+    });
+
+    // Handle double-click to teleport to partner wormhole
+    wormhole.element.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        wormhole.onDoubleClick(e, viewportManager, appState);
     });
 }
 

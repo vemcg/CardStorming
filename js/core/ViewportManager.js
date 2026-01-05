@@ -20,7 +20,7 @@ export class ViewportManager {
 
         // Auto-pan settings
         this.EDGE_RATIO = 0.15;
-        this.PAN_SPEED = 3;
+        this.PAN_SPEED = 1.5; // Reduced from 3 for gentler panning
 
         // Auto-zoom settings
         this.ZOOM_SPEED = 0.002;
@@ -159,6 +159,19 @@ export class ViewportManager {
     }
 
     /**
+     * Center the viewport on specific workspace coordinates
+     */
+    centerOn(workspaceX, workspaceY) {
+        // Use panTo to center on the coordinates
+        this.panTo(workspaceX, workspaceY);
+
+        // Update manual state so auto-zoom returns to this position
+        this.manualZoom = this.currentZoom;
+        this.manualPan = { ...this.currentPan };
+        this.manualFocalPoint = { x: workspaceX, y: workspaceY };
+    }
+
+    /**
      * Auto-pan when card is dragged beyond half the distance to viewport edge
      * @param {number} startX - Card's initial workspace X position
      * @param {number} startY - Card's initial workspace Y position
@@ -187,24 +200,25 @@ export class ViewportManager {
 
         let didPan = false;
 
-        // Pan when moved more than half the distance toward an edge
-        if (movedX < 0 && Math.abs(movedX) > distToLeft / 2) {
-            // Moving left, passed halfway to left edge
+        // Pan when moved more than 65% of the distance toward an edge (less aggressive)
+        const threshold = 0.65;
+        if (movedX < 0 && Math.abs(movedX) > distToLeft * threshold) {
+            // Moving left, passed threshold to left edge
             this.currentPan.x += this.PAN_SPEED;
             didPan = true;
         }
-        if (movedX > 0 && movedX > distToRight / 2) {
-            // Moving right, passed halfway to right edge
+        if (movedX > 0 && movedX > distToRight * threshold) {
+            // Moving right, passed threshold to right edge
             this.currentPan.x -= this.PAN_SPEED;
             didPan = true;
         }
-        if (movedY < 0 && Math.abs(movedY) > distToTop / 2) {
-            // Moving up, passed halfway to top edge
+        if (movedY < 0 && Math.abs(movedY) > distToTop * threshold) {
+            // Moving up, passed threshold to top edge
             this.currentPan.y += this.PAN_SPEED;
             didPan = true;
         }
-        if (movedY > 0 && movedY > distToBottom / 2) {
-            // Moving down, passed halfway to bottom edge
+        if (movedY > 0 && movedY > distToBottom * threshold) {
+            // Moving down, passed threshold to bottom edge
             this.currentPan.y -= this.PAN_SPEED;
             didPan = true;
         }
