@@ -28,6 +28,22 @@ export function showRegistrationDialog(message = 'To continue, please register:'
         errorEl.style.display = 'none';
         errorEl.textContent = '';
 
+        // Stop any ongoing drag operations that might have auto-zoom running
+        if (window.appState && window.appState.currentDrag) {
+            window.appState.currentDrag.isDragging = false;
+            if (window.appState.currentDrag.zoomAnimationFrame) {
+                cancelAnimationFrame(window.appState.currentDrag.zoomAnimationFrame);
+                window.appState.currentDrag.zoomAnimationFrame = null;
+            }
+            window.appState.currentDrag = null;
+        }
+
+        // Stop wormhole zoom animation if running
+        if (window.wormholeZoomAnimationFrame) {
+            cancelAnimationFrame(window.wormholeZoomAnimationFrame);
+            window.wormholeZoomAnimationFrame = null;
+        }
+
         // Show modal
         modal.style.display = 'block';
         emailInput.focus();
@@ -202,6 +218,22 @@ export function showIdentityDialog(identities, title = 'Select Identity', messag
             nameInput.focus();
         });
 
+        // Stop any ongoing drag operations that might have auto-zoom running
+        if (window.appState && window.appState.currentDrag) {
+            window.appState.currentDrag.isDragging = false;
+            if (window.appState.currentDrag.zoomAnimationFrame) {
+                cancelAnimationFrame(window.appState.currentDrag.zoomAnimationFrame);
+                window.appState.currentDrag.zoomAnimationFrame = null;
+            }
+            window.appState.currentDrag = null;
+        }
+
+        // Stop wormhole zoom animation if running
+        if (window.wormholeZoomAnimationFrame) {
+            cancelAnimationFrame(window.wormholeZoomAnimationFrame);
+            window.wormholeZoomAnimationFrame = null;
+        }
+
         // Show modal
         modal.style.display = 'block';
 
@@ -285,17 +317,28 @@ export function showConfirmDialog(message) {
 
 /**
  * Show read-only banner
+ * Pass onRegisterClick callback to handle click
  */
-export function showReadOnlyBanner() {
+export function showReadOnlyBanner(onRegisterClick) {
     let banner = document.getElementById('read-only-banner');
     if (!banner) {
         banner = document.createElement('div');
         banner.id = 'read-only-banner';
         banner.className = 'read-only-banner';
-        banner.textContent = 'Read-Only Mode - Register to edit this project';
+        banner.textContent = 'Read-Only Mode - Click here to register and edit this project';
+        banner.style.cursor = 'pointer';
         document.body.appendChild(banner);
     }
-    banner.style.display = 'block';
+
+    // Remove old click handler and add new one
+    const newBanner = banner.cloneNode(true);
+    banner.parentNode.replaceChild(newBanner, banner);
+
+    if (onRegisterClick) {
+        newBanner.addEventListener('click', onRegisterClick);
+    }
+
+    newBanner.style.display = 'block';
 }
 
 /**

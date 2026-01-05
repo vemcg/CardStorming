@@ -50,6 +50,14 @@ export class ViewportManager {
         this.viewportContent.style.transform =
             `translate(${this.currentPan.x}px, ${this.currentPan.y}px) scale(${this.currentZoom})`;
 
+        // Update coordinates display
+        const coordsDisplay = document.getElementById('viewport-coordinates');
+        if (coordsDisplay) {
+            const x = Math.round(this.focalPoint.x);
+            const y = Math.round(this.focalPoint.y);
+            coordsDisplay.textContent = `${x}, ${y}`;
+        }
+
         debugLog.info('Applied transform', {
             zoom: this.currentZoom,
             pan: this.currentPan,

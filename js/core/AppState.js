@@ -95,6 +95,7 @@ export class AppState {
     clearAll() {
         this.clearCards();
         this.clearWormholes();
+        this.paletteCards = [];
         this.currentDrag = null;
     }
 

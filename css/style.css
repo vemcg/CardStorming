@@ -385,6 +385,22 @@ body {
     display: block;
 }
 
+.viewport-coordinates {
+    display: inline-block;
+    padding: 4px 12px;
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 13px;
+    color: #333;
+    margin-left: 8px;
+    user-select: none;
+    width: 110px;
+    text-align: center;
+    box-sizing: border-box;
+}
+
 /* Main Container */
 .main-container {
     display: flex;
@@ -628,31 +644,35 @@ body {
 
 .modal-content {
     background-color: white;
-    margin: 15% auto;
-    padding: 20px;
+    margin: 20px auto;
+    padding: 15px;
     border: 1px solid #888;
     border-radius: 5px;
     width: 300px;
+    max-height: 85vh;
+    overflow-y: auto;
 }
 
 .modal-content h2 {
     margin-top: 0;
-    margin-bottom: 15px;
+    margin-bottom: 10px;
+    font-size: 1.3rem;
 }
 
 .modal-content label {
     display: block;
-    margin-top: 10px;
-    margin-bottom: 5px;
+    margin-top: 8px;
+    margin-bottom: 4px;
     font-weight: bold;
+    font-size: 0.9rem;
 }
 
 .modal-content input,
 .modal-content select,
 .modal-content textarea {
     width: 100%;
-    padding: 8px;
-    margin-bottom: 10px;
+    padding: 6px;
+    margin-bottom: 8px;
     border: 1px solid #ccc;
     border-radius: 3px;
     font-family: inherit;
@@ -1064,15 +1084,18 @@ body {
 /* Read-only indicator */
 .read-only-banner {
     position: fixed;
-    top: 40px;
-    left: 0;
-    right: 0;
+    top: 75px;
+    left: 50%;
+    transform: translateX(-50%);
     background-color: #ff9800;
     color: white;
-    padding: 8px;
+    padding: 6px 16px;
     text-align: center;
-    z-index: 9999;
+    z-index: 1000;
     font-weight: bold;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    white-space: nowrap;
 }
 
 /* Submenu section headers */
