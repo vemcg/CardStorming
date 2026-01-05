@@ -1090,6 +1090,19 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Handle wormhole rename
+    socket.on('wormhole:rename', (data) => {
+        const project = getProject(projectId);
+        const { id, name } = data;
+        const wormhole = project.wormholes.find(w => w.id === id);
+        if (wormhole) {
+            wormhole.name = name;
+            markProjectDirty(projectId);
+            io.to(projectId).emit('wormhole:rename', { id, name });
+            console.log(`Wormhole renamed in project ${projectId}:`, { id, name });
+        }
+    });
+
     // Handle delete all cards
     socket.on('cards:delete-all', (data) => {
         const targetProjectId = data?.projectId || projectId;

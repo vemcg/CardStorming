@@ -2,6 +2,7 @@
 
 import { DraggableElement } from '../core/DraggableElement.js';
 import { debugLog } from '../utils/DebugLog.js';
+import { showWormholeEditDialog } from '../utils/DialogUtils.js';
 
 export class Wormhole extends DraggableElement {
     constructor(x, y, id, partnerId, name = '', zIndex = 1) {
@@ -96,25 +97,49 @@ export class Wormhole extends DraggableElement {
     }
 
     /**
-     * Handle click - teleport to partner wormhole
+     * Handle click - edit wormhole name
      */
-    onClick(e, viewportManager, appState) {
-        debugLog.info('Wormhole clicked - attempting teleport', {
-            from: this.id,
-            to: this.partnerId
+    async onClick(e, viewportManager, appState) {
+        debugLog.info('Wormhole clicked - opening edit dialog', {
+            id: this.id,
+            currentName: this.name
         });
 
-        const partner = appState.wormholes.get(this.partnerId);
-        if (partner) {
-            debugLog.info('Teleporting to partner wormhole', {
-                partnerId: partner.id,
-                partnerPosition: { x: partner.x, y: partner.y }
-            });
+        try {
+            const newName = await showWormholeEditDialog(this.name);
 
-            // Pan viewport to center on partner wormhole
-            viewportManager.panTo(partner.x, partner.y);
-        } else {
-            debugLog.error('Partner wormhole not found', { partnerId: this.partnerId });
+            if (newName !== this.name) {
+                debugLog.info('Updating wormhole name', {
+                    id: this.id,
+                    oldName: this.name,
+                    newName: newName
+                });
+
+                // Update local name
+                this.name = newName;
+
+                // Update the label in the DOM
+                if (this.element) {
+                    const label = this.element.querySelector('div > div:last-child');
+                    if (label && label.textContent) {
+                        label.textContent = newName;
+                    }
+                }
+
+                // Emit to server
+                if (appState.socket) {
+                    appState.socket.emit('wormhole:rename', {
+                        id: this.id,
+                        name: newName
+                    });
+                }
+            }
+        } catch (err) {
+            if (err.message !== 'Wormhole edit cancelled') {
+                debugLog.error('Error editing wormhole name', err);
+            } else {
+                debugLog.info('Wormhole edit cancelled');
+            }
         }
     }
 

@@ -1903,6 +1903,27 @@ function setupSocketHandlers() {
         }
     });
 
+    // Wormhole renamed (either by us or another user)
+    socket.on('wormhole:rename', (data) => {
+        const wormhole = appState.getWormhole(data.id);
+        if (wormhole) {
+            wormhole.name = data.name;
+
+            // Update the label in the DOM
+            if (wormhole.element) {
+                const label = wormhole.element.querySelector('div > div:last-child');
+                if (label && label.textContent !== undefined) {
+                    label.textContent = data.name;
+                }
+            }
+
+            debugLog.info('Wormhole renamed from server', {
+                id: data.id,
+                name: data.name
+            });
+        }
+    });
+
     // Card deleted by another user (or us)
     socket.on('card:delete', (data) => {
         const card = appState.getCard(data.id);
