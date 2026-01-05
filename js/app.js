@@ -23,12 +23,14 @@ let socket = null;
 let currentProjectId = null;
 let isProjectOpen = false;
 let currentUserInitials = '';
+let wormholeZoomAnimationFrame = null; // Track wormhole drag zoom animation
 
-// Export to window for debugging
+// Export to window for debugging and dialog access
 window.appState = appState;
 window.auth = auth;
 window.debugLog = debugLog;
 window.viewportManager = null; // Will be set after init
+window.wormholeZoomAnimationFrame = null; // Export for dialog access
 
 // ============================================================================
 // PROJECT MANAGEMENT UTILITIES
@@ -178,8 +180,8 @@ function migrateProjectData(serverState) {
             header: oldCard.header,
             body: oldCard.body,
             color: oldCard.color,
-            x: oldCard.left,
-            y: oldCard.top,
+            x: typeof oldCard.left === 'string' ? parseFloat(oldCard.left) : oldCard.left,
+            y: typeof oldCard.top === 'string' ? parseFloat(oldCard.top) : oldCard.top,
             zIndex: oldCard.zIndex,
             authorInitials: oldCard.authorInitials
         }));
@@ -199,23 +201,47 @@ function migrateProjectData(serverState) {
 // PROJECT OPEN/CLOSE
 // ============================================================================
 
-async function openProject(projectId) {
+async function openProject(projectId, skipIdentityCheck = false) {
     if (!projectId || projectId === 'null' || projectId === 'undefined') {
         debugLog.error('Attempted to open project with invalid ID', { projectId });
         closeProject();
         return;
     }
 
-    debugLog.info('Opening project', { projectId });
+    debugLog.info('Opening project', { projectId, currentProjectId, isAlreadyOpen: currentProjectId === projectId, skipIdentityCheck });
+
+    // Check if this project is already open (from initial socket connection)
+    const isAlreadyOpen = currentProjectId === projectId && isProjectOpen;
+
+    // Set project as open FIRST, before any await calls
+    // This ensures that state:init from server won't be ignored
+    currentProjectId = projectId;
+    isProjectOpen = true;
 
     // Check authentication and handle project joining
     if (!auth.isAuthenticated()) {
         // User not authenticated - open in read-only mode
         auth.setReadOnly(true);
         debugLog.info('Opening project in read-only mode (not authenticated)');
+    } else if (skipIdentityCheck) {
+        // Identity already set (e.g., from File > New), skip server check
+        // Just ensure we're not in read-only mode
+        if (auth.getCurrentIdentity()) {
+            auth.setReadOnly(false);
+            currentUserInitials = auth.getCurrentIdentity().initials;
+            debugLog.info('Using pre-set identity, skipping server check', {
+                identity: auth.getCurrentIdentity()
+            });
+        }
     } else {
         // Check if user is member of this project
         const projectIdentities = await auth.getProjectIdentities(projectId);
+
+        debugLog.info('Project identities loaded', {
+            count: projectIdentities.length,
+            identities: projectIdentities,
+            currentIdentity: auth.getCurrentIdentity()
+        });
 
         if (projectIdentities.length === 0) {
             // Not a member - read-only mode
@@ -227,16 +253,29 @@ async function openProject(projectId) {
             if (!auth.getCurrentIdentity() && projectIdentities.length > 0) {
                 auth.setCurrentIdentity(projectIdentities[0].name, projectIdentities[0].initials);
                 currentUserInitials = projectIdentities[0].initials;
+                debugLog.info('Set identity from project identities', {
+                    name: projectIdentities[0].name,
+                    initials: projectIdentities[0].initials
+                });
             }
             auth.setReadOnly(false);
+            debugLog.info('Set read-only to false (user is member)', {
+                hasWriteAccess: auth.hasWriteAccess(),
+                isReadOnly: auth.isReadOnly
+            });
         }
     }
-
-    currentProjectId = projectId;
-    isProjectOpen = true;
     setProjectIdInURL(projectId);
     appState.projectId = projectId;
-    appState.clearAll();
+
+    // Only clear state if opening a different project
+    // If the project is already open from initial socket connection, keep the state
+    if (!isAlreadyOpen) {
+        appState.clearAll();
+        debugLog.info('Cleared state for new project');
+    } else {
+        debugLog.info('Project already open, keeping existing state');
+    }
 
     // Set project name from localStorage if available
     const knownProjects = getKnownProjects();
@@ -266,11 +305,17 @@ async function openProject(projectId) {
     if (auth.isAuthenticated() && auth.hasWriteAccess()) {
         const identity = auth.getCurrentIdentity();
         if (identity && socket && socket.connected) {
-            socket.emit('user:register', {
+            const registerData = {
                 initials: identity.initials,
                 name: identity.name,
-                projectId: projectId
-            }, (response) => {
+                projectId: projectId,
+                userHash: auth.userHash  // Include userHash for proper user file updates
+            };
+            debugLog.info('Emitting user:register', {
+                ...registerData,
+                hasUserHash: !!auth.userHash
+            });
+            socket.emit('user:register', registerData, (response) => {
                 if (response.success) {
                     debugLog.info('Registered with socket.io', { initials: identity.initials });
                 } else {
@@ -304,6 +349,9 @@ function closeProject() {
     const projectNameEl = document.getElementById('project-name');
     if (projectNameEl) projectNameEl.value = '';
 
+    // Clear palette UI
+    renderPaletteCards();
+
     // Disable toolbar buttons
     disableToolbarButtons();
 
@@ -331,21 +379,30 @@ function enableToolbarButtons() {
 }
 
 function disableToolbarButtons() {
-    const buttons = [
+    // Only disable write operations, keep zoom buttons enabled for read-only mode
+    const writeButtons = [
         'add-card-btn',
         'add-wormhole-btn',
-        'zoom-search-btn',
-        'zoom-in-btn',
-        'zoom-out-btn',
-        'zoom-center-btn'
+        'zoom-search-btn'
     ];
 
-    buttons.forEach(id => {
+    writeButtons.forEach(id => {
         const btn = document.getElementById(id);
         if (btn) {
             btn.disabled = true;
             btn.style.opacity = '0.3';
             btn.style.cursor = 'not-allowed';
+        }
+    });
+
+    // Zoom buttons stay enabled in read-only mode
+    const zoomButtons = ['zoom-in-btn', 'zoom-out-btn', 'zoom-center-btn'];
+    zoomButtons.forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
         }
     });
 }
@@ -355,9 +412,36 @@ function updateUIForAuthState() {
     const hasProject = isProjectOpen;
     const hasWriteAccess = auth.hasWriteAccess();
 
+    debugLog.info('updateUIForAuthState', {
+        authenticated,
+        hasProject,
+        hasWriteAccess,
+        isReadOnly: auth.isReadOnly,
+        currentIdentity: auth.getCurrentIdentity()
+    });
+
+    // Update welcome text with user info
+    const welcomeText = document.getElementById('welcome-text');
+    if (welcomeText) {
+        // Only show identity if user has write access to the current project
+        if (hasProject && hasWriteAccess && auth.getCurrentIdentity()) {
+            const identity = auth.getCurrentIdentity();
+            welcomeText.textContent = `Welcome to your collaborative workspace, ${identity.name} (${identity.initials})`;
+        } else {
+            welcomeText.textContent = 'Welcome to your collaborative workspace';
+        }
+    }
+
     // Show/hide read-only banner
     if (hasProject && !hasWriteAccess) {
-        showReadOnlyBanner();
+        showReadOnlyBanner(async () => {
+            // When user clicks the banner, trigger registration
+            const hasAccess = await requireWriteAccess();
+            if (hasAccess) {
+                // Refresh UI after successful registration
+                updateUIForAuthState();
+            }
+        });
     } else {
         hideReadOnlyBanner();
     }
@@ -368,6 +452,17 @@ function updateUIForAuthState() {
         card.draggable = hasWriteAccess;
         card.style.opacity = hasWriteAccess ? '1' : '0.5';
         card.style.cursor = hasWriteAccess ? 'grab' : 'not-allowed';
+    });
+
+    // Disable viewport cards in read-only mode
+    const viewportCards = document.querySelectorAll('.viewport-card');
+    viewportCards.forEach(card => {
+        card.style.cursor = hasWriteAccess ? 'grab' : 'default';
+        if (!hasWriteAccess) {
+            card.classList.add('read-only');
+        } else {
+            card.classList.remove('read-only');
+        }
     });
 
     // Toolbar buttons - use existing enable/disable functions
@@ -444,6 +539,7 @@ async function requireWriteAccess() {
         // Join project
         await auth.joinProject(currentProjectId, identity.name, identity.initials);
         auth.setCurrentIdentity(identity.name, identity.initials);
+        auth.setReadOnly(false);
         currentUserInitials = identity.initials;
 
         // Update UI
@@ -497,10 +593,44 @@ async function openProjectWithIdentitySelection(projectId) {
                 // Adding new identity to existing project membership
                 await auth.joinProject(projectId, identity.name, identity.initials);
             }
+
+            // Even for existing identities, we need to ensure server has the userHash
+            // This handles migration cases where old project entries lack userHash
+            if (socket && socket.connected) {
+                socket.emit('user:register', {
+                    initials: identity.initials,
+                    name: identity.name,
+                    projectId: projectId,
+                    userHash: auth.userHash
+                }, (response) => {
+                    if (response.success) {
+                        debugLog.info('Re-registered existing identity with server', { initials: identity.initials });
+                    }
+                });
+            }
         } else {
-            // Not a member yet - should not happen if filtering worked
-            alert('You do not have access to this project');
-            return;
+            // Not a member yet - let them register with a new identity for this project
+            const identities = await auth.getIdentities();
+            const identity = await showIdentityDialog(
+                identities,
+                'Register for Project',
+                'You are not a member of this project. Choose an identity to join:',
+                async (name, initials) => {
+                    const result = await auth.checkIdentityConflict(projectId, name, initials);
+                    if (result.conflict) {
+                        return {
+                            conflict: true,
+                            message: `Initials "${initials}" already used by ${result.existingName}`
+                        };
+                    }
+                    return { conflict: false };
+                }
+            );
+
+            // Join project with selected identity
+            await auth.joinProject(projectId, identity.name, identity.initials);
+            auth.setCurrentIdentity(identity.name, identity.initials);
+            currentUserInitials = identity.initials;
         }
 
         // Open project
@@ -651,15 +781,16 @@ function setupMenuHandlers() {
                 // Create project
                 const projectId = generateProjectId();
 
-                // Set current identity
+                // Set current identity FIRST
                 auth.setCurrentIdentity(identity.name, identity.initials);
                 currentUserInitials = identity.initials;
 
-                // Join project with this identity
-                await auth.joinProject(projectId, identity.name, identity.initials);
+                // Open project with skipIdentityCheck=true since we just set it
+                // This will trigger socket connection which creates the project on server
+                await openProject(projectId, true);
 
-                // Open project
-                openProject(projectId);
+                // Join the project (register user in project after it's been created)
+                await auth.joinProject(projectId, identity.name, identity.initials);
 
             } catch (err) {
                 if (err.message !== 'Registration cancelled' && err.message !== 'Identity selection cancelled') {
@@ -675,6 +806,48 @@ function setupMenuHandlers() {
             e.preventDefault();
             if (isProjectOpen && confirm('Close the current project?')) {
                 closeProject();
+            }
+        });
+    }
+
+    const leaveProjectMenuItem = document.getElementById('menu-leave-project');
+    if (leaveProjectMenuItem) {
+        leaveProjectMenuItem.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (!isProjectOpen) {
+                alert('No project is open');
+                return;
+            }
+            if (!auth.isAuthenticated()) {
+                alert('You must be authenticated to leave a project');
+                return;
+            }
+
+            const identity = auth.getCurrentIdentity();
+            const identityText = identity ? `${identity.name} (${identity.initials})` : 'your identity';
+
+            if (confirm(`Leave this project as ${identityText}? You can rejoin later with a different identity.`)) {
+                try {
+                    // Call server API to remove user from project
+                    const response = await fetch(`/api/project/${currentProjectId}/user/${auth.userHash}/leave`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to leave project');
+                    }
+
+                    // Close the project locally
+                    closeProject();
+
+                    debugLog.info('Left project', { projectId: currentProjectId });
+                    alert('You have left this project. You can rejoin with a different identity if needed.');
+
+                } catch (err) {
+                    console.error('Error leaving project:', err);
+                    alert('Failed to leave project: ' + err.message);
+                }
             }
         });
     }
@@ -809,9 +982,28 @@ function setupZoomControls() {
     if (centerBtn) {
         centerBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            // Reset to default zoom (1.0) and center view
-            viewportManager.zoomTo(1.0);
-            viewportManager.centerView();
+
+            const currentFocal = viewportManager.focalPoint;
+
+            // If currently at (0,0), center on last card if available
+            if (currentFocal.x === 0 && currentFocal.y === 0) {
+                if (appState.cards.size > 0) {
+                    const cards = Array.from(appState.cards.values());
+                    // Get the last card (most recently added)
+                    const lastCard = cards[cards.length - 1];
+                    viewportManager.panTo(lastCard.x, lastCard.y);
+                    debugLog.info('Centered on last card', { x: lastCard.x, y: lastCard.y });
+                } else {
+                    // Already at (0,0) and no cards, stay at (0,0)
+                    debugLog.info('Already centered at origin (0,0)');
+                }
+            }
+            // If currently NOT at (0,0), center on (0,0)
+            else {
+                viewportManager.panTo(0, 0);
+                debugLog.info('Centered on origin (0,0)');
+            }
+
             // Save this as the manual zoom
             viewportManager.saveManualZoom();
         });
@@ -885,7 +1077,6 @@ function setupToolbarButtons() {
             document.body.appendChild(ghost);
 
             let dragStartTime = Date.now();
-            let zoomAnimationFrame = null;
 
             // Start auto-zoom animation
             const zoomLoop = () => {
@@ -893,9 +1084,11 @@ function setupToolbarButtons() {
                 if (now - dragStartTime >= 1500) {
                     viewportManager.zoomOutGradual();
                 }
-                zoomAnimationFrame = requestAnimationFrame(zoomLoop);
+                wormholeZoomAnimationFrame = requestAnimationFrame(zoomLoop);
+                window.wormholeZoomAnimationFrame = wormholeZoomAnimationFrame;
             };
-            zoomAnimationFrame = requestAnimationFrame(zoomLoop);
+            wormholeZoomAnimationFrame = requestAnimationFrame(zoomLoop);
+            window.wormholeZoomAnimationFrame = wormholeZoomAnimationFrame;
 
             const onMouseMove = (moveEvent) => {
                 ghost.style.left = (moveEvent.clientX - 60) + 'px';
@@ -904,7 +1097,9 @@ function setupToolbarButtons() {
             };
 
             const onMouseUp = (upEvent) => {
-                cancelAnimationFrame(zoomAnimationFrame);
+                cancelAnimationFrame(wormholeZoomAnimationFrame);
+                wormholeZoomAnimationFrame = null;
+                window.wormholeZoomAnimationFrame = null;
                 ghost.remove();
                 document.removeEventListener('mousemove', onMouseMove);
                 document.removeEventListener('mouseup', onMouseUp);
@@ -1165,11 +1360,18 @@ function setupEditModal() {
 
                 card.updateContent(newHeader, newBody);
 
-                socket.emit('viewport:update', {
-                    id: cardId,
-                    header: newHeader,
-                    body: newBody
-                });
+                // If this is a new unsaved card, broadcast it as a new card
+                if (card.isUnsaved) {
+                    delete card.isUnsaved;
+                    socket.emit('viewport:add', card.serialize());
+                } else {
+                    // Existing card - just update
+                    socket.emit('viewport:update', {
+                        id: cardId,
+                        header: newHeader,
+                        body: newBody
+                    });
+                }
 
                 editModal.style.display = 'none';
                 editModal.dataset.editingCardId = '';
@@ -1179,11 +1381,18 @@ function setupEditModal() {
 
     if (editClose) {
         editClose.addEventListener('click', () => {
-            // Save before closing
             const cardId = editModal.dataset.editingCardId;
             const card = appState.getCard(cardId);
 
-            if (card) {
+            if (card && card.isUnsaved) {
+                // This is an unsaved card - Close (×) means cancel/delete it
+                if (card.element) {
+                    card.element.remove();
+                }
+                appState.cards.delete(cardId);
+                debugLog.info('Cancelled unsaved card', { id: cardId });
+            } else if (card) {
+                // Existing card - Close (×) means save and close
                 const newHeader = editCardHeader.textContent.trim();
                 const newBody = getContentEditableText(editCardBody).trim();
 
@@ -1228,14 +1437,22 @@ function setupEditModal() {
         });
     }
 
-    // Click outside modal to save and close
+    // Click outside modal to cancel unsaved cards or save existing cards
     editModal.addEventListener('click', (e) => {
         // Only close if clicking the modal background (not the content)
         if (e.target === editModal) {
             const cardId = editModal.dataset.editingCardId;
             const card = appState.getCard(cardId);
 
-            if (card) {
+            if (card && card.isUnsaved) {
+                // This is an unsaved card - clicking outside cancels/deletes it
+                if (card.element) {
+                    card.element.remove();
+                }
+                appState.cards.delete(cardId);
+                debugLog.info('Cancelled unsaved card (clicked outside)', { id: cardId });
+            } else if (card) {
+                // Existing card - clicking outside saves and closes
                 const newHeader = editCardHeader.textContent.trim();
                 const newBody = getContentEditableText(editCardBody).trim();
 
@@ -1544,6 +1761,32 @@ function setupSocketHandlers() {
             renderPaletteCards();
         }
 
+        // Center viewport on cards if any exist
+        debugLog.info('Checking if viewport should center on cards', { cardCount: appState.cards.size });
+
+        if (appState.cards.size > 0) {
+            const cards = Array.from(appState.cards.values());
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+            cards.forEach(card => {
+                minX = Math.min(minX, card.x);
+                minY = Math.min(minY, card.y);
+                maxX = Math.max(maxX, card.x + 300); // Card width ~300px
+                maxY = Math.max(maxY, card.y + 400); // Card height ~400px
+            });
+
+            // Calculate center of all cards
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+
+            // Pan viewport to center the cards
+            viewportManager.panTo(centerX, centerY);
+
+            debugLog.info('Centered viewport on cards', { centerX, centerY, cardCount: cards.length, minX, minY, maxX, maxY });
+        } else {
+            debugLog.warn('No cards to center viewport on', { cardCount: appState.cards.size });
+        }
+
         debugLog.info('State loaded', {
             cards: appState.cards.size,
             wormholes: appState.wormholes.size,
@@ -1632,10 +1875,14 @@ function setupSocketHandlers() {
     });
 
     // Card updated by another user
-    socket.on('card:update', (data) => {
+    socket.on('viewport:update', (data) => {
         const card = appState.getCard(data.id);
         if (card) {
             card.updateContent(data.header, data.body);
+            if (data.zIndex !== undefined) {
+                card.zIndex = data.zIndex;
+                card.element.style.zIndex = data.zIndex;
+            }
         }
     });
 
@@ -1686,7 +1933,16 @@ function setupCardDragHandlers(card) {
     let onMouseMove = null;
     let onMouseUp = null;
 
-    card.element.addEventListener('mousedown', (e) => {
+    card.element.addEventListener('mousedown', async (e) => {
+        // Check write access before allowing drag
+        if (!auth.hasWriteAccess()) {
+            const hasAccess = await requireWriteAccess();
+            if (!hasAccess) {
+                e.preventDefault();
+                return;
+            }
+        }
+
         card.startDrag(e, viewportManager);
         appState.currentDrag = card;
 
@@ -1710,7 +1966,16 @@ function setupWormholeDragHandlers(wormhole) {
     let onMouseMove = null;
     let onMouseUp = null;
 
-    wormhole.element.addEventListener('mousedown', (e) => {
+    wormhole.element.addEventListener('mousedown', async (e) => {
+        // Check write access before allowing drag
+        if (!auth.hasWriteAccess()) {
+            const hasAccess = await requireWriteAccess();
+            if (!hasAccess) {
+                e.preventDefault();
+                return;
+            }
+        }
+
         wormhole.startDrag(e, viewportManager);
         appState.currentDrag = wormhole;
 
@@ -1742,9 +2007,21 @@ function setupPaletteCards() {
     }
 
     // Use event delegation on the card-list container
-    cardList.addEventListener('dragstart', (e) => {
+    cardList.addEventListener('dragstart', async (e) => {
         const paletteCard = e.target.closest('.palette-card');
         if (!paletteCard) return;
+
+        // Check write access before allowing drag
+        if (!auth.hasWriteAccess()) {
+            e.preventDefault();
+            const hasAccess = await requireWriteAccess();
+            if (!hasAccess) {
+                return;
+            }
+            // If we got access, we need to restart the drag manually
+            // For now, just prevent and let user try again
+            return;
+        }
 
         e.dataTransfer.effectAllowed = 'copy';
         const data = {
@@ -1753,6 +2030,9 @@ function setupPaletteCards() {
         };
         e.dataTransfer.setData('application/json', JSON.stringify(data));
         paletteCard.classList.add('dragging');
+
+        // Save current zoom level before drag starts (in case auto-zoom kicks in)
+        viewportManager.saveManualZoom();
 
         debugLog.info('Palette card drag started', data);
     });
@@ -1855,12 +2135,10 @@ function setupPaletteDropZone() {
             appState.addCard(card);
             setupCardDragHandlers(card);
 
-            // Emit to server
-            if (socket) {
-                socket.emit('viewport:add', card.serialize());
-            }
+            // Mark card as unsaved (will be broadcast when user saves in edit modal)
+            card.isUnsaved = true;
 
-            debugLog.info('Card created from palette', { id: cardId, type: data.type, color: data.color });
+            debugLog.info('Card created from palette (not yet broadcast)', { id: cardId, type: data.type, color: data.color });
 
             // Auto-open edit modal at drop position
             const editEvent = new CustomEvent('card:edit', {
@@ -1909,6 +2187,15 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     // Initialize socket.io with project ID from URL if available
     const initialProjectId = getProjectIdFromURL();
+
+    // If there's an initial project ID, set it as the current project BEFORE connecting
+    // This ensures the state:init from server won't be ignored
+    if (initialProjectId) {
+        currentProjectId = initialProjectId;
+        isProjectOpen = true;
+        debugLog.info('Pre-opening project from URL', { projectId: initialProjectId });
+    }
+
     const socketOptions = initialProjectId ? { query: { projectId: initialProjectId } } : {};
     socket = io(socketOptions);
     appState.socket = socket;

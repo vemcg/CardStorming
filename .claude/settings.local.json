@@ -29,7 +29,11 @@
       "Bash(curl:*)",
       "Bash(python -m json.tool:*)",
       "Bash(done)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(powershell -Command \"Stop-Process -Name chrome -ErrorAction SilentlyContinue; Start-Process chrome ''http://localhost:3000''\")",
+      "Bash(netstat:*)",
+      "Bash(powershell:*)",
+      "Bash(timeout /t 2 /nobreak)"
     ],
     "deny": [],
     "ask": []

@@ -79,8 +79,20 @@ function loadProjectFromDisk(projectId) {
         if (fs.existsSync(filePath)) {
             const data = fs.readFileSync(filePath, 'utf8');
             const parsed = JSON.parse(data);
+
+            // Check if migration will occur
+            const needsMigration = (!parsed.version || parsed.version === 1) &&
+                                  (parsed.viewportCards || (Array.isArray(parsed.users) && parsed.users.length > 0));
+
             const project = deserializeProject(parsed);
             console.log(`Loaded project ${projectId} from disk`);
+
+            // If project was migrated, mark it dirty so it gets saved
+            if (needsMigration) {
+                markProjectDirty(projectId);
+                console.log(`Project ${projectId} migrated - marked dirty for save`);
+            }
+
             return project;
         }
     } catch (err) {
@@ -103,19 +115,26 @@ function getProject(projectId) {
         if (savedProject) {
             projects.set(projectId, savedProject);
         } else {
-            // Create new project
-            projects.set(projectId, {
-                version: 2, // Schema version
-                projectName: null,
-                paletteCards: [],
-                cards: [], // New format (was viewportCards)
-                wormholes: [], // Array of wormhole objects
-                maxZIndex: 1,
-                users: new Map() // initials -> {name, socketId}
-            });
+            // Don't automatically create projects - return null if doesn't exist
+            return null;
         }
     }
     return projects.get(projectId);
+}
+
+// Create a new empty project (used by File > New)
+function createProject(projectId) {
+    const newProject = {
+        version: 2,
+        projectName: null,
+        paletteCards: [],
+        cards: [],
+        wormholes: [],
+        maxZIndex: 1,
+        users: new Map()
+    };
+    projects.set(projectId, newProject);
+    return newProject;
 }
 
 // Normalize z-index values for a project to prevent overflow
@@ -171,10 +190,19 @@ function deserializeProject(data) {
         console.log('Migrating project from v1 to v2 (viewportCards → cards)');
         data.cards = data.viewportCards.map(card => ({
             ...card,
-            x: card.left,
-            y: card.top
+            x: typeof card.left === 'string' ? parseFloat(card.left) : card.left,
+            y: typeof card.top === 'string' ? parseFloat(card.top) : card.top
         }));
         delete data.viewportCards;
+        data.version = 2;
+    }
+
+    // Migrate users array to Map if needed (v2 format has users as array in JSON but Map in memory)
+    // The 'users' variable above already converted array to Map, so we're good
+    // But we should mark old projects that have users array as needing conversion
+    if (Array.isArray(data.users) && data.users.length > 0) {
+        console.log('Migrating project users from array format');
+        // The users Map is already created above from the array, so just mark it as migrated
         data.version = 2;
     }
 
@@ -340,6 +368,11 @@ function checkIdentityConflict(projectHash, name, initials, excludeUserHash = nu
             if (excludeUserHash && userData.userHash === excludeUserHash) {
                 return { conflict: false };
             }
+            // MIGRATION: If existing entry has no userHash (old project), allow claim
+            // This lets authenticated users claim unclaimed identities during migration
+            if (!userData.userHash && excludeUserHash) {
+                return { conflict: false };
+            }
             // Different user with same initials - conflict
             return {
                 conflict: true,
@@ -355,6 +388,12 @@ function checkIdentityConflict(projectHash, name, initials, excludeUserHash = nu
 // Add user to project ACL
 function addUserToProject(projectHash, userHash, name, initials) {
     const project = getProject(projectHash);
+    if (!project) {
+        return {
+            success: false,
+            error: 'Project not found'
+        };
+    }
     if (!project.users) {
         project.users = new Map();
     }
@@ -389,13 +428,54 @@ function getUserIdentityInProject(userHash, projectHash) {
     const project = getProject(projectHash);
     if (!project.users) return null;
 
+    let migrated = false;
+
     // Find the user in the project
     for (const [initials, userData] of project.users.entries()) {
+        // Match exact userHash
         if (userData.userHash === userHash) {
             return {
                 name: userData.name,
                 initials: initials
             };
+        }
+        // MIGRATION: If userHash is undefined (old project), try to claim based on user's identity
+        else if (!userData.userHash) {
+            const user = loadUserFromDisk(userHash);
+            if (user) {
+                // First try to match on project-specific identity
+                const matchesProjectIdentity = user.identities && user.identities[projectHash] &&
+                    user.identities[projectHash].initials === initials &&
+                    user.identities[projectHash].name === userData.name;
+
+                // If no project-specific identity, try matching on default identity
+                const matchesDefaultIdentity = !user.identities[projectHash] &&
+                    user.defaultInitials === initials &&
+                    user.defaultName === userData.name;
+
+                if (matchesProjectIdentity || matchesDefaultIdentity) {
+                    // Claim this identity by adding userHash
+                    userData.userHash = userHash;
+                    migrated = true;
+                    console.log(`Migrated user entry in project ${projectHash}: ${userData.name} (${initials}) now owned by ${userHash} (matched ${matchesProjectIdentity ? 'project' : 'default'} identity)`);
+
+                    // Also add the identity to the user file if not already there
+                    if (!user.identities[projectHash]) {
+                        addProjectToUser(userHash, projectHash);
+                        addIdentityToUser(userHash, projectHash, userData.name, initials);
+                        console.log(`Added missing identity for project ${projectHash} to user ${userHash} during migration`);
+                    }
+
+                    if (migrated) {
+                        markProjectDirty(projectHash);
+                    }
+
+                    return {
+                        name: userData.name,
+                        initials: initials
+                    };
+                }
+            }
         }
     }
 
@@ -405,17 +485,56 @@ function getUserIdentityInProject(userHash, projectHash) {
 // Get all identities a user has in a specific project
 function getUserIdentitiesInProject(userHash, projectHash) {
     const project = getProject(projectHash);
-    if (!project.users) return [];
+    if (!project || !project.users) return [];
 
     const identities = [];
+    let migrated = false;
 
     for (const [initials, userData] of project.users.entries()) {
+        // Match exact userHash
         if (userData.userHash === userHash) {
             identities.push({
                 name: userData.name,
                 initials: initials
             });
         }
+        // MIGRATION: If userHash is undefined (old project), try to claim based on user's identity
+        else if (!userData.userHash) {
+            const user = loadUserFromDisk(userHash);
+            if (user) {
+                // First try to match on project-specific identity
+                const matchesProjectIdentity = user.identities && user.identities[projectHash] &&
+                    user.identities[projectHash].initials === initials &&
+                    user.identities[projectHash].name === userData.name;
+
+                // If no project-specific identity, try matching on default identity
+                const matchesDefaultIdentity = !user.identities[projectHash] &&
+                    user.defaultInitials === initials &&
+                    user.defaultName === userData.name;
+
+                if (matchesProjectIdentity || matchesDefaultIdentity) {
+                    // Claim this identity by adding userHash
+                    userData.userHash = userHash;
+                    migrated = true;
+                    identities.push({
+                        name: userData.name,
+                        initials: initials
+                    });
+                    console.log(`Migrated user entry in project ${projectHash}: ${userData.name} (${initials}) now owned by ${userHash} (matched ${matchesProjectIdentity ? 'project' : 'default'} identity)`);
+
+                    // Also add the identity to the user file if not already there
+                    if (!user.identities[projectHash]) {
+                        addProjectToUser(userHash, projectHash);
+                        addIdentityToUser(userHash, projectHash, userData.name, initials);
+                        console.log(`Added missing identity for project ${projectHash} to user ${userHash} during migration`);
+                    }
+                }
+            }
+        }
+    }
+
+    if (migrated) {
+        markProjectDirty(projectHash);
     }
 
     return identities;
@@ -534,6 +653,49 @@ app.post('/api/project/:projectHash/users', (req, res) => {
     res.json(result);
 });
 
+// Remove user from project (leave project)
+app.post('/api/project/:projectHash/user/:userHash/leave', (req, res) => {
+    const { projectHash, userHash } = req.params;
+
+    const project = getProject(projectHash);
+    if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Remove user from project
+    if (project.users) {
+        const removed = [];
+        for (const [initials, userData] of project.users.entries()) {
+            if (userData.userHash === userHash) {
+                project.users.delete(initials);
+                removed.push(initials);
+            }
+        }
+
+        if (removed.length > 0) {
+            markProjectDirty(projectHash);
+            console.log(`User ${userHash} left project ${projectHash} (removed identities: ${removed.join(', ')})`);
+        }
+    }
+
+    // Remove project from user's project list
+    const userData = loadUserFromDisk(userHash);
+    if (userData && userData.projects) {
+        userData.projects = userData.projects.filter(pid => pid !== projectHash);
+        saveUserToDisk(userHash, userData);
+        console.log(`Removed project ${projectHash} from user ${userHash}'s project list`);
+    }
+
+    // Remove identity from user's identities
+    if (userData && userData.identities && userData.identities[projectHash]) {
+        delete userData.identities[projectHash];
+        saveUserToDisk(userHash, userData);
+        console.log(`Removed identity for project ${projectHash} from user ${userHash}`);
+    }
+
+    res.json({ success: true, message: 'Left project successfully' });
+});
+
 // Get user's identities in a specific project
 app.get('/api/project/:projectHash/user/:userHash/identities', (req, res) => {
     const { projectHash, userHash } = req.params;
@@ -570,6 +732,11 @@ app.get('/api/projects/list', (req, res) => {
             const projectId = file.replace('.json', '');
             const project = getProject(projectId);
 
+            // Skip if project couldn't be loaded
+            if (!project) {
+                return null;
+            }
+
             // Count users - only count users with userHash (new auth system)
             // Old users from before the auth system don't have userHash
             let userCount = 0;
@@ -586,7 +753,7 @@ app.get('/api/projects/list', (req, res) => {
                 name: project.projectName || 'Unnamed Project',
                 userCount: userCount
             };
-        });
+        }).filter(p => p !== null); // Remove null entries
 
         res.json({ projects: projectsList });
     } catch (err) {
@@ -648,21 +815,31 @@ app.get('/api/projects', (req, res) => {
 
 // WebSocket connection handling
 io.on('connection', (socket) => {
-    const projectId = socket.handshake.query.projectId || 'default';
-    console.log('Client connected:', socket.id, 'Project:', projectId);
+    let projectId = socket.handshake.query.projectId;
 
-    // Join project room
-    socket.join(projectId);
+    // If client connects with a project ID, send initial state
+    if (projectId) {
+        console.log('Client connected:', socket.id, 'Project:', projectId);
 
-    // Send current state to newly connected client
-    const project = getProject(projectId);
-    console.log(`Sending state to client. Wormholes in project: ${project.wormholes ? project.wormholes.length : 0}`);
-    if (project.wormholes && project.wormholes.length > 0) {
-        console.log('Wormholes:', project.wormholes);
+        // Join project room
+        socket.join(projectId);
+
+        // Send current state to newly connected client
+        const project = getProject(projectId);
+        if (!project) {
+            console.log(`Project ${projectId} not found - not sending state:init`);
+        } else {
+            console.log(`Sending state to client. Wormholes in project: ${project.wormholes ? project.wormholes.length : 0}`);
+            if (project.wormholes && project.wormholes.length > 0) {
+                console.log('Wormholes:', project.wormholes);
+            }
+            socket.emit('state:init', project);
+        }
+    } else {
+        console.log('Client connected without project ID:', socket.id);
     }
-    socket.emit('state:init', project);
 
-    // Handle client joining a different project
+    // Handle client joining a different project (ALWAYS register this handler)
     socket.on('project:join', (data) => {
         const { projectId: newProjectId } = data;
         console.log(`Client ${socket.id} switching to project:`, newProjectId);
@@ -678,8 +855,15 @@ io.on('connection', (socket) => {
         // Join new project room
         socket.join(newProjectId);
 
-        // Send state for new project
-        const newProject = getProject(newProjectId);
+        // Update the projectId for this socket
+        projectId = newProjectId;
+
+        // Get or create project
+        let newProject = getProject(newProjectId);
+        if (!newProject) {
+            console.log(`Creating new project: ${newProjectId}`);
+            newProject = createProject(newProjectId);
+        }
         socket.emit('state:init', newProject);
     });
 
@@ -718,6 +902,14 @@ io.on('connection', (socket) => {
 
     // Handle user registration
     socket.on('user:register', (data, callback) => {
+        console.log(`user:register received:`, {
+            initials: data.initials,
+            name: data.name,
+            projectId: data.projectId,
+            userHash: data.userHash,
+            hasUserHash: !!data.userHash
+        });
+
         const project = getProject(data.projectId);
         const existingUser = project.users.get(data.initials);
 
@@ -736,12 +928,22 @@ io.on('connection', (socket) => {
         // Register or re-register user
         project.users.set(data.initials, {
             name: data.name,
-            socketId: socket.id
+            socketId: socket.id,
+            userHash: data.userHash  // Include userHash for proper identity tracking
         });
 
         markProjectDirty(data.projectId);
 
         console.log(`User registered: ${data.initials} (${data.name}) in project ${data.projectId}`);
+
+        // If userHash provided, update user file with project and identity
+        if (data.userHash) {
+            addProjectToUser(data.userHash, data.projectId);
+            addIdentityToUser(data.userHash, data.projectId, data.name, data.initials);
+            console.log(`Added identity for project ${data.projectId} to user ${data.userHash}`);
+        } else {
+            console.warn(`No userHash provided in user:register for ${data.initials} - identity will not be saved`);
+        }
 
         callback({ success: true });
     });
@@ -782,6 +984,10 @@ io.on('connection', (socket) => {
     // Handle viewport card update (edit)
     socket.on('viewport:update', (data) => {
         const project = getProject(projectId);
+        if (!project) {
+            console.error('viewport:update: project not found', { projectId });
+            return;
+        }
         const { id, header, body } = data;
         const card = project.cards.find(c => c.id === id);
         if (card) {
@@ -914,6 +1120,9 @@ io.on('connection', (socket) => {
 
         // Clear socketId for this user but keep them in the users list
         const project = getProject(projectId);
+        if (!project || !project.users) {
+            return;
+        }
         for (const [initials, userData] of project.users.entries()) {
             if (userData.socketId === socket.id) {
                 userData.socketId = null;
