@@ -17,6 +17,9 @@ export class AppState {
         // Project info
         this.projectId = null;
         this.projectName = null;
+
+        // Z-index tracking
+        this.maxZIndex = 1;
     }
 
     /**

@@ -68,7 +68,7 @@ export class DraggableElement {
     /**
      * Start dragging
      */
-    startDrag(e, viewportManager) {
+    startDrag(e, viewportManager, appState) {
         e.stopPropagation();
 
         this.isDragging = true;
@@ -91,10 +91,14 @@ export class DraggableElement {
         this.dragOffsetX = this.x - initialWorkspacePos.x;
         this.dragOffsetY = this.y - initialWorkspacePos.y;
 
-        // Visual feedback
+        // Store original z-index
+        this.originalZIndex = this.zIndex;
+
+        // Visual feedback - set to maxZIndex + 1000 for temporary top position
         if (this.element) {
             this.element.style.opacity = '0.7';
-            this.element.style.zIndex = '1000';
+            const maxZ = appState ? appState.maxZIndex : 1000;
+            this.element.style.zIndex = String(maxZ + 1000);
         }
 
         // Start auto-zoom animation if enabled
@@ -176,7 +180,10 @@ export class DraggableElement {
         // Restore visual state
         if (this.element) {
             this.element.style.opacity = '1';
-            this.element.style.zIndex = '';
+            // Restore original z-index (will be updated by onDrop if needed)
+            if (this.originalZIndex !== undefined) {
+                this.element.style.zIndex = String(this.originalZIndex);
+            }
         }
 
         // Zoom back to 1.0 if auto-zoom was enabled

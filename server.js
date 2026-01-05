@@ -1051,11 +1051,22 @@ io.on('connection', (socket) => {
     // Handle wormhole creation
     socket.on('wormhole:add', (wormholeData) => {
         const project = getProject(projectId);
+
+        // Check if we need to normalize z-index (prevent overflow)
+        if (project.maxZIndex > 5000) {
+            normalizeZIndex(projectId);
+            io.to(projectId).emit('state:sync', project);
+        }
+
+        // Server always assigns z-index (server is authoritative)
+        project.maxZIndex++;
+        wormholeData.zIndex = project.maxZIndex;
+
         console.log(`Wormhole added to project ${projectId}:`, wormholeData);
         console.log(`Total wormholes in project: ${project.wormholes.length + 1}`);
         project.wormholes.push(wormholeData);
         markProjectDirty(projectId);
-        socket.broadcast.to(projectId).emit('wormhole:add', wormholeData);
+        io.to(projectId).emit('wormhole:add', wormholeData);
     });
 
     // Handle wormhole movement
@@ -1064,10 +1075,18 @@ io.on('connection', (socket) => {
         const { id, x, y } = data;
         const wormhole = project.wormholes.find(w => w.id === id);
         if (wormhole) {
+            // Check if we need to normalize z-index (prevent overflow)
+            if (project.maxZIndex > 5000) {
+                normalizeZIndex(projectId);
+                io.to(projectId).emit('state:sync', project);
+            }
+
             wormhole.x = x;
             wormhole.y = y;
+            project.maxZIndex++;
+            wormhole.zIndex = project.maxZIndex;
             markProjectDirty(projectId);
-            socket.broadcast.to(projectId).emit('wormhole:move', { id, x, y });
+            io.to(projectId).emit('wormhole:move', { id, x, y, zIndex: wormhole.zIndex });
         }
     });
 

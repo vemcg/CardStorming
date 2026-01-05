@@ -10,7 +10,7 @@ import { Card } from './elements/Card.js';
 import { Wormhole } from './elements/Wormhole.js';
 import { ZoomSearchTool } from './elements/ZoomSearchTool.js';
 import { Auth } from './core/Auth.js';
-import { showRegistrationDialog, showIdentityDialog, showReadOnlyBanner, hideReadOnlyBanner } from './utils/DialogUtils.js';
+import { showRegistrationDialog, showIdentityDialog, showReadOnlyBanner, hideReadOnlyBanner, showWormholeNamingDialog } from './utils/DialogUtils.js';
 
 // ============================================================================
 // GLOBAL STATE
@@ -1025,7 +1025,7 @@ function setupToolbarButtons() {
 
             const tool = new ZoomSearchTool(0, 0);
             appState.currentDrag = tool;
-            tool.startDrag(e, viewportManager);
+            tool.startDrag(e, viewportManager, appState);
 
             const onMouseMove = (moveEvent) => {
                 tool.drag(moveEvent, viewportManager, appState);
@@ -1096,7 +1096,7 @@ function setupToolbarButtons() {
                 viewportManager.autoPan(moveEvent);
             };
 
-            const onMouseUp = (upEvent) => {
+            const onMouseUp = async (upEvent) => {
                 cancelAnimationFrame(wormholeZoomAnimationFrame);
                 wormholeZoomAnimationFrame = null;
                 window.wormholeZoomAnimationFrame = null;
@@ -1116,30 +1116,41 @@ function setupToolbarButtons() {
                     // Zoom back to 1.0
                     viewportManager.zoomTo(1.0, dropPos.x, dropPos.y);
 
-                    // Create wormhole pair
-                    const wormhole1Id = 'wormhole-' + Date.now() + '-1';
-                    const wormhole2Id = 'wormhole-' + Date.now() + '-2';
+                    try {
+                        // Show naming dialog
+                        const names = await showWormholeNamingDialog();
 
-                    const wormhole1 = new Wormhole(dropPos.x, dropPos.y, wormhole1Id, wormhole2Id);
-                    const wormhole2 = new Wormhole(dropPos.x + 5, dropPos.y + 5, wormhole2Id, wormhole1Id);
+                        // Create wormhole pair - server will assign z-index
+                        const wormhole1Id = 'wormhole-' + Date.now() + '-1';
+                        const wormhole2Id = 'wormhole-' + Date.now() + '-2';
 
-                    // Render both
-                    viewportContent.appendChild(wormhole1.render(viewportManager));
-                    viewportContent.appendChild(wormhole2.render(viewportManager));
+                        const wormhole1 = new Wormhole(dropPos.x, dropPos.y, wormhole1Id, wormhole2Id, names.end1);
+                        const wormhole2 = new Wormhole(dropPos.x + 5, dropPos.y + 5, wormhole2Id, wormhole1Id, names.end2);
 
-                    // Add to state
-                    appState.addWormhole(wormhole1);
-                    appState.addWormhole(wormhole2);
+                        // Render both
+                        viewportContent.appendChild(wormhole1.render(viewportManager));
+                        viewportContent.appendChild(wormhole2.render(viewportManager));
 
-                    // Setup drag handlers
-                    setupWormholeDragHandlers(wormhole1);
-                    setupWormholeDragHandlers(wormhole2);
+                        // Add to state
+                        appState.addWormhole(wormhole1);
+                        appState.addWormhole(wormhole2);
 
-                    // Emit to server
-                    socket.emit('wormhole:add', wormhole1.serialize());
-                    socket.emit('wormhole:add', wormhole2.serialize());
+                        // Setup drag handlers
+                        setupWormholeDragHandlers(wormhole1);
+                        setupWormholeDragHandlers(wormhole2);
 
-                    debugLog.info('Wormhole pair created', { wormhole1Id, wormhole2Id });
+                        // Emit to server
+                        socket.emit('wormhole:add', wormhole1.serialize());
+                        socket.emit('wormhole:add', wormhole2.serialize());
+
+                        debugLog.info('Wormhole pair created', { wormhole1Id, wormhole2Id, names });
+                    } catch (err) {
+                        if (err.message !== 'Wormhole naming cancelled') {
+                            debugLog.error('Error creating wormhole', err);
+                        } else {
+                            debugLog.info('Wormhole creation cancelled');
+                        }
+                    }
                 }
             };
 
@@ -1746,7 +1757,9 @@ function setupSocketHandlers() {
                     wormholeData.x,
                     wormholeData.y,
                     wormholeData.id,
-                    wormholeData.partnerId
+                    wormholeData.partnerId,
+                    wormholeData.name,
+                    wormholeData.zIndex || 1
                 );
 
                 viewportContent.appendChild(wormhole.render(viewportManager));
@@ -1754,6 +1767,10 @@ function setupSocketHandlers() {
                 setupWormholeDragHandlers(wormhole);
             });
         }
+
+        // Load maxZIndex from server
+        appState.maxZIndex = serverState.maxZIndex || 1;
+        debugLog.info('Loaded maxZIndex from server', { maxZIndex: appState.maxZIndex });
 
         // Load palette cards
         if (serverState.paletteCards) {
@@ -1819,11 +1836,26 @@ function setupSocketHandlers() {
         setupCardDragHandlers(card);
     });
 
-    // Wormhole added by another user
+    // Wormhole added (either by us or another user)
     socket.on('wormhole:add', (wormholeData) => {
-        // Check if wormhole already exists (avoid duplicates from our own emits)
-        if (appState.getWormhole(wormholeData.id)) {
-            debugLog.info('Wormhole already exists, skipping duplicate', { id: wormholeData.id });
+        // Check if wormhole already exists
+        const existingWormhole = appState.getWormhole(wormholeData.id);
+        if (existingWormhole) {
+            // Update z-index from server (server is authoritative)
+            if (wormholeData.zIndex !== undefined) {
+                existingWormhole.zIndex = wormholeData.zIndex;
+                if (existingWormhole.element) {
+                    existingWormhole.element.style.zIndex = String(wormholeData.zIndex);
+                }
+                // Update local maxZIndex if needed
+                if (wormholeData.zIndex > appState.maxZIndex) {
+                    appState.maxZIndex = wormholeData.zIndex;
+                }
+                debugLog.info('Updated existing wormhole z-index from server', {
+                    id: wormholeData.id,
+                    zIndex: wormholeData.zIndex
+                });
+            }
             return;
         }
 
@@ -1832,8 +1864,15 @@ function setupSocketHandlers() {
             wormholeData.x,
             wormholeData.y,
             wormholeData.id,
-            wormholeData.partnerId
+            wormholeData.partnerId,
+            wormholeData.name,
+            wormholeData.zIndex || 1
         );
+
+        // Update local maxZIndex if needed
+        if (wormholeData.zIndex && wormholeData.zIndex > appState.maxZIndex) {
+            appState.maxZIndex = wormholeData.zIndex;
+        }
 
         viewportContent.appendChild(wormhole.render(viewportManager));
         appState.addWormhole(wormhole);
@@ -1846,6 +1885,20 @@ function setupSocketHandlers() {
         if (wormhole) {
             wormhole.x = data.x;
             wormhole.y = data.y;
+
+            // Update z-index if provided
+            if (data.zIndex !== undefined) {
+                wormhole.zIndex = data.zIndex;
+                if (wormhole.element) {
+                    wormhole.element.style.zIndex = String(data.zIndex);
+                }
+
+                // Update local maxZIndex if needed
+                if (data.zIndex > appState.maxZIndex) {
+                    appState.maxZIndex = data.zIndex;
+                }
+            }
+
             wormhole.updatePosition(viewportManager);
         }
     });
@@ -1943,7 +1996,7 @@ function setupCardDragHandlers(card) {
             }
         }
 
-        card.startDrag(e, viewportManager);
+        card.startDrag(e, viewportManager, appState);
         appState.currentDrag = card;
 
         onMouseMove = (moveEvent) => {
@@ -1966,17 +2019,33 @@ function setupWormholeDragHandlers(wormhole) {
     let onMouseMove = null;
     let onMouseUp = null;
 
+    if (!wormhole.element) {
+        debugLog.error('setupWormholeDragHandlers: wormhole.element is null', { id: wormhole.id });
+        return;
+    }
+
+    debugLog.info('Setting up drag handlers for wormhole', {
+        id: wormhole.id,
+        className: wormhole.element.className,
+        hasElement: !!wormhole.element
+    });
+
     wormhole.element.addEventListener('mousedown', async (e) => {
+        debugLog.info('Wormhole mousedown handler triggered', { id: wormhole.id, target: e.target });
+        e.preventDefault();
+        e.stopPropagation();
+
         // Check write access before allowing drag
         if (!auth.hasWriteAccess()) {
             const hasAccess = await requireWriteAccess();
             if (!hasAccess) {
-                e.preventDefault();
+                debugLog.info('No write access, aborting wormhole drag');
                 return;
             }
         }
 
-        wormhole.startDrag(e, viewportManager);
+        debugLog.info('Starting wormhole drag', { id: wormhole.id });
+        wormhole.startDrag(e, viewportManager, appState);
         appState.currentDrag = wormhole;
 
         onMouseMove = (moveEvent) => {

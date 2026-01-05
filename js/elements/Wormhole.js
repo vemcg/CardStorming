@@ -4,11 +4,13 @@ import { DraggableElement } from '../core/DraggableElement.js';
 import { debugLog } from '../utils/DebugLog.js';
 
 export class Wormhole extends DraggableElement {
-    constructor(x, y, id, partnerId) {
+    constructor(x, y, id, partnerId, name = '', zIndex = 1) {
         super(x, y, { isPersistent: true });
 
         this.id = id;
         this.partnerId = partnerId;
+        this.name = name;
+        this.zIndex = zIndex;
     }
 
     /**
@@ -30,25 +32,56 @@ export class Wormhole extends DraggableElement {
         wormhole.style.alignItems = 'center';
         wormhole.style.justifyContent = 'center';
         wormhole.style.cursor = 'pointer';
-        wormhole.style.zIndex = '100';
+        wormhole.style.zIndex = String(this.zIndex);
         wormhole.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.3)';
+        wormhole.style.pointerEvents = 'auto';  // Ensure pointer events are enabled
+
+        // Create inner container for SVG and label
+        const innerContainer = document.createElement('div');
+        innerContainer.style.display = 'flex';
+        innerContainer.style.flexDirection = 'column';
+        innerContainer.style.alignItems = 'center';
+        innerContainer.style.justifyContent = 'center';
+        innerContainer.style.width = '100%';
+        innerContainer.style.height = '100%';
+        innerContainer.style.pointerEvents = 'none'; // Let events pass through to parent wormhole div
 
         // Get SVG from wormhole button
         const wormholeBtnElement = document.getElementById('wormhole-btn');
         if (wormholeBtnElement) {
-            wormhole.innerHTML = wormholeBtnElement.innerHTML;
-            const svg = wormhole.querySelector('svg');
+            const svgContainer = document.createElement('div');
+            svgContainer.innerHTML = wormholeBtnElement.innerHTML;
+            const svg = svgContainer.querySelector('svg');
             if (svg) {
-                svg.style.width = '96px';
-                svg.style.height = '96px';
+                svg.style.width = '80px';
+                svg.style.height = '80px';
             }
+            innerContainer.appendChild(svgContainer);
         }
+
+        // Add name label if provided
+        if (this.name) {
+            const label = document.createElement('div');
+            label.style.fontSize = '12px';
+            label.style.fontWeight = 'bold';
+            label.style.color = '#333';
+            label.style.marginTop = '5px';
+            label.style.textAlign = 'center';
+            label.style.maxWidth = '110px';
+            label.style.overflow = 'hidden';
+            label.style.textOverflow = 'ellipsis';
+            label.style.whiteSpace = 'nowrap';
+            label.textContent = this.name;
+            innerContainer.appendChild(label);
+        }
+
+        wormhole.appendChild(innerContainer);
 
         this.element = wormhole;
         this.updatePosition(viewportManager);
 
-        // Attach event listeners
-        this.attachEventListeners(viewportManager);
+        // Note: Event listeners are attached in setupWormholeDragHandlers in app.js
+        // Don't attach listeners here to avoid conflicts
 
         return wormhole;
     }
@@ -109,7 +142,9 @@ export class Wormhole extends DraggableElement {
             id: this.id,
             partnerId: this.partnerId,
             x: this.x,
-            y: this.y
+            y: this.y,
+            name: this.name,
+            zIndex: this.zIndex
         };
     }
 }

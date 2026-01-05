@@ -64,7 +64,7 @@ export class ZoomSearchTool extends DraggableElement {
     /**
      * Start drag - attach to document body
      */
-    startDrag(e, viewportManager) {
+    startDrag(e, viewportManager, appState) {
         // Render and attach to body
         if (!this.element) {
             this.render(viewportManager);
@@ -73,7 +73,7 @@ export class ZoomSearchTool extends DraggableElement {
 
         this.updateScreenPosition(e.clientX, e.clientY);
 
-        super.startDrag(e, viewportManager);
+        super.startDrag(e, viewportManager, appState);
 
         debugLog.info('Zoom-search drag started');
     }
