@@ -188,6 +188,12 @@ export class Card extends DraggableElement {
                         });
                     }
 
+                    // Update constellations after teleportation
+                    if (window.constellationManager) {
+                        const cards = Array.from(appState.cards.values());
+                        window.constellationManager.updateConstellationsDebounced(cards);
+                    }
+
                     return;
                 }
             }
@@ -201,6 +207,12 @@ export class Card extends DraggableElement {
                 y: this.y,
                 zIndex: this.zIndex
             });
+        }
+
+        // Update constellations after drop
+        if (window.constellationManager) {
+            const cards = Array.from(appState.cards.values());
+            window.constellationManager.updateConstellationsDebounced(cards);
         }
     }
 

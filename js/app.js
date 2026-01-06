@@ -6,6 +6,7 @@ import { debugLog } from './utils/DebugLog.js';
 import { CoordinateSystem } from './core/CoordinateSystem.js';
 import { ViewportManager } from './core/ViewportManager.js';
 import { AppState } from './core/AppState.js';
+import { ConstellationManager } from './core/ConstellationManager.js';
 import { Card } from './elements/Card.js';
 import { Wormhole } from './elements/Wormhole.js';
 import { ZoomSearchTool } from './elements/ZoomSearchTool.js';
@@ -19,6 +20,7 @@ import { showRegistrationDialog, showIdentityDialog, showReadOnlyBanner, hideRea
 const appState = new AppState();
 const auth = new Auth();
 let viewportManager = null;
+let constellationManager = null;
 let socket = null;
 let currentProjectId = null;
 let isProjectOpen = false;
@@ -30,6 +32,7 @@ window.appState = appState;
 window.auth = auth;
 window.debugLog = debugLog;
 window.viewportManager = null; // Will be set after init
+window.constellationManager = null; // Will be set after init
 window.wormholeZoomAnimationFrame = null; // Export for dialog access
 
 // ============================================================================
@@ -961,22 +964,56 @@ function setupZoomControls() {
     const zoomInBtn = document.getElementById('zoom-in-btn');
     const centerBtn = document.getElementById('center-btn');
 
-    if (zoomOutBtn) {
-        zoomOutBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            viewportManager.zoomOut();
-            // Save manual zoom level
+    let zoomInterval = null;
+
+    // Helper to stop zooming
+    const stopZooming = () => {
+        if (zoomInterval) {
+            clearInterval(zoomInterval);
+            zoomInterval = null;
             viewportManager.saveManualZoom();
+        }
+    };
+
+    // Global mouseup to stop zooming if user releases outside button
+    document.addEventListener('mouseup', stopZooming);
+
+    if (zoomOutBtn) {
+        // Start continuous zoom out on mousedown
+        zoomOutBtn.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+
+            // Initial zoom
+            viewportManager.zoomOut();
+
+            // Start continuous zooming
+            zoomInterval = setInterval(() => {
+                viewportManager.zoomOut();
+            }, 100); // Zoom every 100ms
         });
+
+        // Stop zooming on mouseup or mouseleave
+        zoomOutBtn.addEventListener('mouseup', stopZooming);
+        zoomOutBtn.addEventListener('mouseleave', stopZooming);
     }
 
     if (zoomInBtn) {
-        zoomInBtn.addEventListener('click', (e) => {
+        // Start continuous zoom in on mousedown
+        zoomInBtn.addEventListener('mousedown', (e) => {
             e.preventDefault();
+
+            // Initial zoom
             viewportManager.zoomIn();
-            // Save manual zoom level
-            viewportManager.saveManualZoom();
+
+            // Start continuous zooming
+            zoomInterval = setInterval(() => {
+                viewportManager.zoomIn();
+            }, 100); // Zoom every 100ms
         });
+
+        // Stop zooming on mouseup or mouseleave
+        zoomInBtn.addEventListener('mouseup', stopZooming);
+        zoomInBtn.addEventListener('mouseleave', stopZooming);
     }
 
     if (centerBtn) {
@@ -1129,8 +1166,8 @@ function setupToolbarButtons() {
                         viewportManager.currentZoom
                     );
 
-                    // Zoom back to 1.0
-                    viewportManager.zoomTo(1.0, dropPos.x, dropPos.y);
+                    // Restore manual zoom level
+                    viewportManager.restoreManualZoom();
 
                     try {
                         // Show naming dialog
@@ -1313,6 +1350,13 @@ function setupEditModal() {
     const editClose = document.getElementById('edit-close');
     const editDelete = document.getElementById('edit-delete');
 
+    // Move edit modal into viewport-content so it inherits transforms
+    const viewportContent = document.querySelector('.viewport-content');
+    if (viewportContent && editModal && !viewportContent.contains(editModal)) {
+        viewportContent.appendChild(editModal);
+        debugLog.info('Moved edit modal into viewport-content');
+    }
+
     // Prevent Enter key in header from creating newline - move to body instead
     if (editCardHeader) {
         editCardHeader.addEventListener('keydown', (e) => {
@@ -1351,29 +1395,34 @@ function setupEditModal() {
 
         // Position and size modal exactly to match the card
         if (card.element) {
-            const cardRect = card.element.getBoundingClientRect();
+            // Convert workspace coordinates to CSS coordinates (same as cards use)
+            const cssPos = CoordinateSystem.workspaceToCSS(card.x, card.y, viewportManager.viewport);
 
+            // Position modal in CSS coordinates (so it follows viewport transforms)
             editModal.style.display = 'block';
-            editModal.style.position = 'fixed';
-            editModal.style.left = cardRect.left + 'px';
-            editModal.style.top = cardRect.top + 'px';
+            editModal.style.position = 'absolute';
+            editModal.style.left = cssPos.x + 'px';
+            editModal.style.top = cssPos.y + 'px';
             editModal.style.transform = 'none';
 
-            // Match the card's actual size (including zoom)
-            editCardVisual.style.width = cardRect.width + 'px';
-            editCardVisual.style.height = cardRect.height + 'px';
+            // Get current zoom for sizing
+            const zoom = viewportManager.zoom;
+
+            // Match the card's natural size scaled by zoom
+            const cardWidth = 150;
+            const cardHeight = 120;
+
+            editCardVisual.style.width = cardWidth + 'px';
+            editCardVisual.style.height = cardHeight + 'px';
             editCardVisual.style.minHeight = 'unset';
             editCardVisual.style.maxHeight = 'unset';
 
-            // Calculate zoom scale from card width (natural width is 150px)
-            const zoomScale = cardRect.width / 150;
-
-            // Scale font sizes to match zoom
-            editCardHeader.style.fontSize = (11 * zoomScale) + 'px';
-            editCardBody.style.fontSize = (9 * zoomScale) + 'px';
+            // Font sizes already match the card's base sizes (no zoom scaling needed)
+            editCardHeader.style.fontSize = '11px';
+            editCardBody.style.fontSize = '9px';
 
             // Scale spacing
-            editCardHeader.style.marginBottom = (4 * zoomScale) + 'px';
+            editCardHeader.style.marginBottom = '4px';
         } else if (mouseEvent) {
             // Fallback to mouse position if card element not available
             const modalWidth = 150;
@@ -1862,6 +1911,12 @@ function setupSocketHandlers() {
             wormholes: appState.wormholes.size,
             paletteCards: serverState.paletteCards ? serverState.paletteCards.length : 0
         });
+
+        // Initial constellation detection after state load
+        if (constellationManager && appState.cards.size > 0) {
+            const cards = Array.from(appState.cards.values());
+            constellationManager.updateConstellations(cards);
+        }
     });
 
     // Card added by another user
@@ -1887,6 +1942,12 @@ function setupSocketHandlers() {
         viewportContent.appendChild(card.render(viewportManager));
         appState.addCard(card);
         setupCardDragHandlers(card);
+
+        // Update constellations when card is added
+        if (constellationManager) {
+            const cards = Array.from(appState.cards.values());
+            constellationManager.updateConstellationsDebounced(cards);
+        }
     });
 
     // Wormhole added (either by us or another user)
@@ -2027,6 +2088,12 @@ function setupSocketHandlers() {
             }
             appState.cards.delete(data.id);
             debugLog.info('Card deleted by remote user', { id: data.id });
+
+            // Update constellations when card is deleted
+            if (constellationManager) {
+                const cards = Array.from(appState.cards.values());
+                constellationManager.updateConstellationsDebounced(cards);
+            }
         }
     });
 
@@ -2039,6 +2106,12 @@ function setupSocketHandlers() {
             card.zIndex = data.zIndex;
             card.element.style.zIndex = data.zIndex;
             card.updatePosition(viewportManager);
+
+            // Update constellations when card is moved by another user
+            if (constellationManager) {
+                const cards = Array.from(appState.cards.values());
+                constellationManager.updateConstellationsDebounced(cards);
+            }
         }
     });
 
@@ -2330,6 +2403,12 @@ function setupPaletteDropZone() {
             // Mark card as unsaved (will be broadcast when user saves in edit modal)
             card.isUnsaved = true;
 
+            // Update constellations after adding new card
+            if (constellationManager) {
+                const cards = Array.from(appState.cards.values());
+                constellationManager.updateConstellations(cards);
+            }
+
             debugLog.info('Card created from palette (not yet broadcast)', { id: cardId, type: data.type, color: data.color });
 
             // Auto-open edit modal at drop position
@@ -2376,6 +2455,10 @@ document.addEventListener('DOMContentLoaded', async function() {
     const viewportContent = document.querySelector('.viewport-content');
     viewportManager = new ViewportManager(viewport, viewportContent);
     window.viewportManager = viewportManager; // For debugging
+
+    // Initialize constellation manager
+    constellationManager = new ConstellationManager(viewport, viewportManager);
+    window.constellationManager = constellationManager; // For debugging
 
     // Initialize socket.io with project ID from URL if available
     const initialProjectId = getProjectIdFromURL();

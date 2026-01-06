@@ -191,9 +191,9 @@ export class DraggableElement {
             }
         }
 
-        // Zoom back to 1.0 if auto-zoom was enabled
+        // Restore manual zoom level if auto-zoom was enabled
         if (this.enableAutoZoom) {
-            viewportManager.zoomTo(1.0, this.x, this.y);
+            viewportManager.restoreManualZoom();
         }
 
         // Determine if it was a click or drag
