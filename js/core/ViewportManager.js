@@ -20,10 +20,10 @@ export class ViewportManager {
 
         // Auto-pan settings
         this.EDGE_RATIO = 0.15;
-        this.PAN_SPEED = 1.5; // Reduced from 3 for gentler panning
+        this.PAN_SPEED = 3.0; // Speed up auto-pan
 
         // Auto-zoom settings
-        this.ZOOM_SPEED = 0.002;
+        this.ZOOM_SPEED = 0.005; // Speed up auto-zoom
         this.ZOOM_DELAY_MS = 1500;
 
         // Manual zoom tracking (for restoring after auto-zoom)
@@ -95,15 +95,19 @@ export class ViewportManager {
     }
 
     /**
-     * Zoom to a specific level, keeping focal point centered
+     * Zoom to a specific level, keeping focal point at same screen position
      */
     zoomTo(targetZoom, focalX = this.focalPoint.x, focalY = this.focalPoint.y) {
         const oldZoom = this.currentZoom;
         this.currentZoom = Math.max(this.MIN_ZOOM, Math.min(this.MAX_ZOOM, targetZoom));
 
-        // Adjust pan to keep focal point in same screen position
-        this.currentPan.x = this.currentPan.x * (this.currentZoom / oldZoom);
-        this.currentPan.y = this.currentPan.y * (this.currentZoom / oldZoom);
+        // Calculate the screen position of the focal point before zoom
+        const screenFocalX = focalX * oldZoom + this.currentPan.x;
+        const screenFocalY = focalY * oldZoom + this.currentPan.y;
+
+        // Adjust pan to keep focal point at the same screen position after zoom
+        this.currentPan.x = screenFocalX - focalX * this.currentZoom;
+        this.currentPan.y = screenFocalY - focalY * this.currentZoom;
 
         this.focalPoint.x = focalX;
         this.focalPoint.y = focalY;
@@ -132,8 +136,8 @@ export class ViewportManager {
      */
     zoomOutGradual() {
         if (this.currentZoom > this.MIN_ZOOM) {
-            this.currentZoom = Math.max(this.MIN_ZOOM, this.currentZoom - this.ZOOM_SPEED);
-            this.applyTransform();
+            const newZoom = Math.max(this.MIN_ZOOM, this.currentZoom - this.ZOOM_SPEED);
+            this.zoomTo(newZoom); // Use zoomTo to properly adjust pan
         }
     }
 

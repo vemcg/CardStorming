@@ -191,15 +191,18 @@ export class DraggableElement {
             }
         }
 
-        // Restore manual zoom level if auto-zoom was enabled
-        if (this.enableAutoZoom) {
-            viewportManager.restoreManualZoom();
-        }
+        // Note: Removed auto-zoom snap-back. System only snaps back after
+        // explicit auto-zoom operations (like wormhole creation), not after
+        // normal card dragging. User's preferred zoom is set by zoom buttons.
 
         // Determine if it was a click or drag
         if (!this.hasMoved && dragDuration < this.CLICK_TIME_THRESHOLD) {
             this.onClick(e, viewportManager, appState);
         } else {
+            // Set focal point to drop location
+            viewportManager.focalPoint.x = this.x;
+            viewportManager.focalPoint.y = this.y;
+
             this.onDrop(e, viewportManager, appState);
         }
 

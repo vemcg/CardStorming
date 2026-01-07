@@ -581,6 +581,23 @@ export class ConstellationManager {
                 cardsMoved: cardIds.size
             });
 
+            // Set focal point to constellation center (average position of all cards)
+            let centerX = 0;
+            let centerY = 0;
+            let count = 0;
+            for (const cardId of cardIds) {
+                if (window.appState.cards.has(cardId)) {
+                    const card = window.appState.cards.get(cardId);
+                    centerX += card.x;
+                    centerY += card.y;
+                    count++;
+                }
+            }
+            if (count > 0) {
+                this.viewportManager.focalPoint.x = centerX / count;
+                this.viewportManager.focalPoint.y = centerY / count;
+            }
+
             // Clean up (must be done before updating constellations)
             this.draggedConstellationId = null;
             this.dragStartCardPositions.clear();

@@ -221,6 +221,11 @@ async function openProject(projectId, skipIdentityCheck = false) {
     currentProjectId = projectId;
     isProjectOpen = true;
 
+    // Record project access time for sorting in File > Open menu
+    const projectAccessTimes = JSON.parse(localStorage.getItem('projectAccessTimes') || '{}');
+    projectAccessTimes[projectId] = Date.now();
+    localStorage.setItem('projectAccessTimes', JSON.stringify(projectAccessTimes));
+
     // Check authentication and handle project joining
     if (!auth.isAuthenticated()) {
         // User not authenticated - open in read-only mode
@@ -673,7 +678,13 @@ async function populateOpenSubmenu() {
         // Separate into user's projects and unclaimed
         const userProjectSet = new Set(userProjects);
 
+        // Get last access times from localStorage
+        const projectAccessTimes = JSON.parse(localStorage.getItem('projectAccessTimes') || '{}');
+
         projects.forEach(project => {
+            // Add last access time to project data
+            project.lastAccessed = projectAccessTimes[project.id] || 0;
+
             if (userProjectSet.has(project.id)) {
                 // User's project
                 myProjects.push(project);
@@ -683,6 +694,10 @@ async function populateOpenSubmenu() {
             }
             // Projects with users that aren't this user are not shown
         });
+
+        // Sort by most recently accessed (most recent first)
+        myProjects.sort((a, b) => b.lastAccessed - a.lastAccessed);
+        unclaimedProjects.sort((a, b) => b.lastAccessed - a.lastAccessed);
 
         // Build submenu
         openSubmenu.innerHTML = '';
@@ -1016,49 +1031,49 @@ function setupZoomControls() {
         zoomInBtn.addEventListener('mouseleave', stopZooming);
     }
 
+    // Track center button state for double-click behavior and focal point toggling
+    let lastCenterClickTime = 0;
+    let previousFocalPoint = { x: 0, y: 0 }; // Track previous focal point for toggling
+    const DOUBLE_CLICK_THRESHOLD = 500; // ms
+
     if (centerBtn) {
         centerBtn.addEventListener('click', (e) => {
             e.preventDefault();
 
-            const currentFocal = viewportManager.focalPoint;
+            const now = Date.now();
+            const timeSinceLastClick = now - lastCenterClickTime;
+            lastCenterClickTime = now;
 
-            // If there's a last teleported card, center on it
-            if (appState.lastTeleportedCardId) {
-                const teleportedCard = appState.getCard(appState.lastTeleportedCardId);
-                if (teleportedCard) {
-                    viewportManager.centerOn(teleportedCard.x, teleportedCard.y);
-                    debugLog.info('Centered on last teleported card', {
-                        id: teleportedCard.id,
-                        x: teleportedCard.x,
-                        y: teleportedCard.y
-                    });
-                    // Clear the teleported card after centering
-                    appState.lastTeleportedCardId = null;
-                    return;
-                }
+            // Fast double-click (within threshold) = restore preferred zoom level
+            if (timeSinceLastClick < DOUBLE_CLICK_THRESHOLD) {
+                // Restore the manually set zoom level (from zoom buttons or scroll wheel)
+                // but keep the current focal point
+                const currentFocal = { ...viewportManager.focalPoint };
+                viewportManager.zoomTo(viewportManager.manualZoom, currentFocal.x, currentFocal.y);
+                viewportManager.saveManualZoom(); // Update manual zoom state
+                debugLog.info('Restored preferred zoom level', {
+                    zoom: viewportManager.currentZoom,
+                    focalPoint: viewportManager.focalPoint
+                });
+                return;
             }
 
-            // If currently at (0,0), center on last card if available
-            if (currentFocal.x === 0 && currentFocal.y === 0) {
-                if (appState.cards.size > 0) {
-                    const cards = Array.from(appState.cards.values());
-                    // Get the last card (most recently added)
-                    const lastCard = cards[cards.length - 1];
-                    viewportManager.panTo(lastCard.x, lastCard.y);
-                    debugLog.info('Centered on last card', { x: lastCard.x, y: lastCard.y });
-                } else {
-                    // Already at (0,0) and no cards, stay at (0,0)
-                    debugLog.info('Already centered at origin (0,0)');
-                }
-            }
-            // If currently NOT at (0,0), center on (0,0)
-            else {
-                viewportManager.panTo(0, 0);
-                debugLog.info('Centered on origin (0,0)');
-            }
+            // Slow click = toggle between current and previous focal points
+            const currentFocal = { ...viewportManager.focalPoint };
 
-            // Save this as the manual zoom
-            viewportManager.saveManualZoom();
+            // Save current focal point before switching
+            const tempFocal = { ...currentFocal };
+
+            // Pan to previous focal point
+            viewportManager.panTo(previousFocalPoint.x, previousFocalPoint.y);
+
+            // Update previous focal point to the old current focal point
+            previousFocalPoint = tempFocal;
+
+            debugLog.info('Toggled to previous focal point', {
+                from: tempFocal,
+                to: viewportManager.focalPoint
+            });
         });
     }
 }
@@ -1302,6 +1317,26 @@ function setupViewportDrag() {
             });
         }
     });
+
+    // Scroll wheel zoom
+    viewport.addEventListener('wheel', (e) => {
+        e.preventDefault();
+
+        // Set focal point to mouse position
+        viewportManager.setFocalPointFromEvent(e);
+
+        // Zoom in/out based on scroll direction
+        const zoomDelta = e.deltaY > 0 ? 0.9 : 1.1; // Scroll down = zoom out, scroll up = zoom in
+        viewportManager.zoomTo(viewportManager.currentZoom * zoomDelta);
+
+        // Save as manual zoom (user's preferred zoom level)
+        viewportManager.saveManualZoom();
+
+        debugLog.info('Scroll wheel zoom', {
+            zoom: viewportManager.currentZoom,
+            focalPoint: viewportManager.focalPoint
+        });
+    }, { passive: false }); // passive: false allows preventDefault
 }
 
 // ============================================================================
@@ -1717,6 +1752,11 @@ function renderPaletteCards() {
     // Clear existing palette cards
     cardList.innerHTML = '';
 
+    // Get current palette scale
+    const palette = cardList.closest('.palette');
+    const currentScale = parseFloat(palette?.dataset.scale) || 1.0;
+    const baseMargin = 30; // margin-bottom on card-stack
+
     // Render each palette card
     const paletteCards = appState.paletteCards || [];
     paletteCards.forEach(paletteCard => {
@@ -1724,6 +1764,9 @@ function renderPaletteCards() {
         const stackEl = document.createElement('div');
         stackEl.className = 'card-stack';
         stackEl.style.backgroundColor = paletteCard.color;
+
+        // Apply current scale to stack margin
+        stackEl.style.marginBottom = `${baseMargin * currentScale}px`;
 
         // Create the actual card
         const cardEl = document.createElement('div');
@@ -1747,7 +1790,7 @@ function renderPaletteCards() {
         cardList.appendChild(stackEl);
     });
 
-    debugLog.info('Rendered palette cards', { count: paletteCards.length });
+    debugLog.info('Rendered palette cards', { count: paletteCards.length, scale: currentScale });
 }
 
 // ============================================================================
@@ -2309,6 +2352,75 @@ function setupPaletteCards() {
         paletteCard.classList.remove('dragging');
         debugLog.info('Palette card drag ended');
     });
+
+    // Scroll wheel zoom for palette width
+    const palette = cardList.closest('.palette');
+    const addCardBtn = document.getElementById('add-card-btn');
+
+    // Store scale on the palette as a data attribute
+    let currentScale = parseFloat(palette.dataset.scale) || 1.0;
+
+    // Get base width from CSS (default 200px)
+    const baseWidth = 200; // Default palette width in pixels
+    const basePadding = 16; // 1rem = 16px
+    const baseMargin = 30; // margin-bottom on card-stack
+    const baseButtonHeight = 80; // min-height on add-card-button
+    const baseStackOffset = 5; // px offset for stacked cards effect
+
+    // Create or get the dynamic style element for card stack scaling
+    let stackStyleEl = document.getElementById('palette-stack-scale-style');
+    if (!stackStyleEl) {
+        stackStyleEl = document.createElement('style');
+        stackStyleEl.id = 'palette-stack-scale-style';
+        document.head.appendChild(stackStyleEl);
+    }
+
+    if (palette) {
+        palette.addEventListener('wheel', (e) => {
+            e.preventDefault();
+
+            // Zoom in/out based on scroll direction
+            const zoomDelta = e.deltaY > 0 ? 0.9 : 1.1; // Scroll down = zoom out, scroll up = zoom in
+            currentScale = Math.max(0.5, Math.min(2.0, currentScale * zoomDelta)); // Limit between 0.5x and 2x
+
+            // Save scale to data attribute
+            palette.dataset.scale = currentScale;
+
+            // Scale the palette width (height stays 100%)
+            const newWidth = baseWidth * currentScale;
+            palette.style.width = `${newWidth}px`;
+
+            // Scale padding to maintain proportions
+            palette.style.padding = `${basePadding * currentScale}px`;
+
+            // Scale add-card button height
+            if (addCardBtn) {
+                addCardBtn.style.minHeight = `${baseButtonHeight * currentScale}px`;
+                addCardBtn.style.marginBottom = `${basePadding * currentScale}px`;
+            }
+
+            // Scale spacing between palette cards
+            const cardStacks = cardList.querySelectorAll('.card-stack');
+            cardStacks.forEach(stack => {
+                stack.style.marginBottom = `${baseMargin * currentScale}px`;
+            });
+
+            // Scale the card stack offset for ::before and ::after pseudo-elements
+            const scaledOffset = baseStackOffset * currentScale;
+            stackStyleEl.textContent = `
+                .card-stack::before {
+                    top: ${scaledOffset}px !important;
+                    right: -${scaledOffset}px !important;
+                }
+                .card-stack::after {
+                    top: ${scaledOffset * 2}px !important;
+                    right: -${scaledOffset * 2}px !important;
+                }
+            `;
+
+            debugLog.info('Palette zoom', { scale: currentScale, width: newWidth });
+        }, { passive: false }); // passive: false allows preventDefault
+    }
 }
 
 function setupPaletteDropZone() {
