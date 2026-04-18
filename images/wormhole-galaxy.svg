@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 125">
+  <defs>
+    <radialGradient id="wormhole1" cx="35%" cy="50%" r="40%">
+      <stop offset="0%" style="stop-color:#FFD700;stop-opacity:1" />
+      <stop offset="30%" style="stop-color:#00CED1;stop-opacity:0.8" />
+      <stop offset="60%" style="stop-color:#8A2BE2;stop-opacity:0.6" />
+      <stop offset="100%" style="stop-color:#000033;stop-opacity:0" />
+    </radialGradient>
+    <radialGradient id="wormhole2" cx="65%" cy="50%" r="40%">
+      <stop offset="0%" style="stop-color:#FFD700;stop-opacity:1" />
+      <stop offset="30%" style="stop-color:#00CED1;stop-opacity:0.8" />
+      <stop offset="60%" style="stop-color:#FF69B4;stop-opacity:0.6" />
+      <stop offset="100%" style="stop-color:#000033;stop-opacity:0" />
+    </radialGradient>
+    <linearGradient id="space" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0a20" />
+      <stop offset="50%" style="stop-color:#1a1a40" />
+      <stop offset="100%" style="stop-color:#0a0a20" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="200" height="125" fill="url(#space)" rx="8"/>
+
+  <!-- Stars -->
+  <circle cx="20" cy="20" r="1" fill="white" opacity="0.8"/>
+  <circle cx="45" cy="35" r="0.5" fill="white" opacity="0.6"/>
+  <circle cx="80" cy="15" r="1" fill="white" opacity="0.7"/>
+  <circle cx="120" cy="25" r="0.5" fill="white" opacity="0.5"/>
+  <circle cx="155" cy="20" r="1" fill="white" opacity="0.8"/>
+  <circle cx="180" cy="40" r="0.5" fill="white" opacity="0.6"/>
+  <circle cx="30" cy="90" r="0.5" fill="white" opacity="0.7"/>
+  <circle cx="60" cy="105" r="1" fill="white" opacity="0.6"/>
+  <circle cx="140" cy="100" r="0.5" fill="white" opacity="0.8"/>
+  <circle cx="170" cy="85" r="1" fill="white" opacity="0.5"/>
+  <circle cx="15" cy="60" r="0.5" fill="white" opacity="0.6"/>
+  <circle cx="185" cy="62" r="0.5" fill="white" opacity="0.7"/>
+
+  <!-- Left wormhole spiral -->
+  <ellipse cx="70" cy="62" rx="45" ry="35" fill="url(#wormhole1)" opacity="0.9"/>
+  <ellipse cx="70" cy="62" rx="25" ry="20" fill="#000011" opacity="0.8"/>
+  <ellipse cx="70" cy="62" rx="10" ry="8" fill="#000" />
+
+  <!-- Right wormhole spiral -->
+  <ellipse cx="130" cy="62" rx="45" ry="35" fill="url(#wormhole2)" opacity="0.9"/>
+  <ellipse cx="130" cy="62" rx="25" ry="20" fill="#000011" opacity="0.8"/>
+  <ellipse cx="130" cy="62" rx="10" ry="8" fill="#000" />
+
+  <!-- Connection beam between wormholes -->
+  <path d="M85 62 Q100 55 115 62 Q100 69 85 62" fill="#00CED1" opacity="0.4"/>
+  <path d="M90 62 Q100 58 110 62 Q100 66 90 62" fill="#FFD700" opacity="0.3"/>
+</svg>

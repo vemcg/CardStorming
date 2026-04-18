@@ -34,7 +34,10 @@
       "Bash(netstat:*)",
       "Bash(powershell:*)",
       "Bash(timeout /t 2 /nobreak)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(git mv:*)",
+      "Bash(Get-Content server.log -Tail 50)",
+      "Bash(git branch:*)"
     ],
     "deny": [],
     "ask": []

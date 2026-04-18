@@ -58,11 +58,15 @@ export class ViewportManager {
             coordsDisplay.textContent = `${x}, ${y}`;
         }
 
-        debugLog.info('Applied transform', {
-            zoom: this.currentZoom,
-            pan: this.currentPan,
-            focalPoint: this.focalPoint
-        });
+        // Debug logging (commented out for performance)
+        // const stack = new Error().stack;
+        // const callerLine = stack.split('\n')[2];
+        // debugLog.info('Applied transform', {
+        //     zoom: this.currentZoom,
+        //     pan: this.currentPan,
+        //     focalPoint: this.focalPoint,
+        //     calledFrom: callerLine?.trim()
+        // });
     }
 
     /**
@@ -155,11 +159,36 @@ export class ViewportManager {
      * Pan to specific workspace coordinates
      */
     panTo(workspaceX, workspaceY) {
-        this.currentPan.x = -workspaceX * this.currentZoom;
-        this.currentPan.y = -workspaceY * this.currentZoom;
+        // Pan so that the workspace coordinates appear at the center of the viewport
+        // In our coordinate system, workspace (0,0) is at viewport center when pan is (0,0)
+        // So to center workspace point P, we need pan = -P * zoom
+
+        // debugLog.info('=== panTo START ===');
+        // debugLog.info('Input', { workspaceX, workspaceY });
+        // debugLog.info('Current zoom', { zoom: this.currentZoom });
+
+        const newPanX = -workspaceX * this.currentZoom;
+        const newPanY = -workspaceY * this.currentZoom;
+
+        // debugLog.info('Calculated newPan', { newPanX, newPanY });
+        // debugLog.info('Old pan', { x: this.currentPan.x, y: this.currentPan.y });
+        // debugLog.info('Old focal', { x: this.focalPoint.x, y: this.focalPoint.y });
+
+        this.currentPan.x = newPanX;
+        this.currentPan.y = newPanY;
+
+        // debugLog.info('After setting pan', { x: this.currentPan.x, y: this.currentPan.y });
+
         this.focalPoint.x = workspaceX;
         this.focalPoint.y = workspaceY;
+
+        // debugLog.info('After setting focal', { x: this.focalPoint.x, y: this.focalPoint.y });
+
         this.applyTransform();
+
+        // debugLog.info('After applyTransform, pan', { x: this.currentPan.x, y: this.currentPan.y });
+        // debugLog.info('After applyTransform, focal', { x: this.focalPoint.x, y: this.focalPoint.y });
+        // debugLog.info('=== panTo END ===');
     }
 
     /**

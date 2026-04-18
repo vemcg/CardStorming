@@ -1033,7 +1033,8 @@ function setupZoomControls() {
 
     // Track center button state for double-click behavior and focal point toggling
     let lastCenterClickTime = 0;
-    let previousFocalPoint = { x: 0, y: 0 }; // Track previous focal point for toggling
+    let savedFocalPoint = null; // The focal point we're toggling back to (previous location)
+    let isShowingCurrentFocal = false; // Track which focal point we're currently showing
     const DOUBLE_CLICK_THRESHOLD = 500; // ms
 
     if (centerBtn) {
@@ -1044,36 +1045,44 @@ function setupZoomControls() {
             const timeSinceLastClick = now - lastCenterClickTime;
             lastCenterClickTime = now;
 
-            // Fast double-click (within threshold) = restore preferred zoom level
+            // Get where the focal point currently is (e.g., where you dropped a card)
+            const dropFocal = { ...viewportManager.focalPoint };
+
+            // Fast double-click (within threshold) = restore preferred zoom level AND center on current focal
             if (timeSinceLastClick < DOUBLE_CLICK_THRESHOLD) {
-                // Restore the manually set zoom level (from zoom buttons or scroll wheel)
-                // but keep the current focal point
-                const currentFocal = { ...viewportManager.focalPoint };
-                viewportManager.zoomTo(viewportManager.manualZoom, currentFocal.x, currentFocal.y);
-                viewportManager.saveManualZoom(); // Update manual zoom state
-                debugLog.info('Restored preferred zoom level', {
+                // First pan to center the focal point, then zoom to manual zoom level
+                viewportManager.panTo(dropFocal.x, dropFocal.y);
+                viewportManager.zoomTo(viewportManager.manualZoom, dropFocal.x, dropFocal.y);
+                debugLog.info('Restored preferred zoom level and centered', {
                     zoom: viewportManager.currentZoom,
                     focalPoint: viewportManager.focalPoint
                 });
                 return;
             }
 
-            // Slow click = toggle between current and previous focal points
-            const currentFocal = { ...viewportManager.focalPoint };
+            // Single click logic:
+            // - First click: center on current focal point (where card was dropped), save the viewport center as "previous"
+            // - Second click: go back to saved "previous" location
+            // - Third click: go back to drop focal point
+            // etc.
 
-            // Save current focal point before switching
-            const tempFocal = { ...currentFocal };
+            if (!isShowingCurrentFocal) {
+                // We're not currently centered on the drop focal, so center on it
+                // First, save the current viewport center as the "previous" location
+                const viewportCenterX = -viewportManager.currentPan.x / viewportManager.currentZoom;
+                const viewportCenterY = -viewportManager.currentPan.y / viewportManager.currentZoom;
+                savedFocalPoint = { x: viewportCenterX, y: viewportCenterY };
 
-            // Pan to previous focal point
-            viewportManager.panTo(previousFocalPoint.x, previousFocalPoint.y);
-
-            // Update previous focal point to the old current focal point
-            previousFocalPoint = tempFocal;
-
-            debugLog.info('Toggled to previous focal point', {
-                from: tempFocal,
-                to: viewportManager.focalPoint
-            });
+                // Center on the drop focal point
+                viewportManager.panTo(dropFocal.x, dropFocal.y);
+                isShowingCurrentFocal = true;
+            } else {
+                // We're currently showing the drop focal, so toggle back to saved location
+                if (savedFocalPoint) {
+                    viewportManager.panTo(savedFocalPoint.x, savedFocalPoint.y);
+                }
+                isShowingCurrentFocal = false;
+            }
         });
     }
 }
@@ -1113,35 +1122,30 @@ function setupToolbarButtons() {
         });
     }
 
-    // Wormhole button
-    if (wormholeBtn) {
-        wormholeBtn.addEventListener('mousedown', (e) => {
+    // Wormhole palette item (draggable)
+    const wormholePaletteItem = document.getElementById('wormhole-palette-item');
+    const wormholeElement = wormholePaletteItem || wormholeBtn; // Support both old toolbar and new palette
+
+    if (wormholeElement) {
+        wormholeElement.addEventListener('mousedown', (e) => {
             e.preventDefault();
 
             const viewportContent = document.querySelector('.viewport-content');
 
-            // Create ghost element
+            // Create ghost element with galaxy image
             const ghost = document.createElement('div');
             ghost.style.position = 'fixed';
             ghost.style.pointerEvents = 'none';
             ghost.style.zIndex = '10000';
-            ghost.style.width = '120px';
-            ghost.style.height = '120px';
-            ghost.style.opacity = '0.7';
-            ghost.style.borderRadius = '50%';
-            ghost.style.backgroundColor = 'rgba(255,255,255,0.9)';
-            ghost.style.border = '3px solid #666';
-            ghost.style.display = 'flex';
-            ghost.style.alignItems = 'center';
-            ghost.style.justifyContent = 'center';
-            ghost.innerHTML = wormholeBtn.innerHTML;
-            const svg = ghost.querySelector('svg');
-            if (svg) {
-                svg.style.width = '96px';
-                svg.style.height = '96px';
-            }
-            ghost.style.left = (e.clientX - 60) + 'px';
-            ghost.style.top = (e.clientY - 60) + 'px';
+            ghost.style.width = '160px';
+            ghost.style.height = '100px';
+            ghost.style.opacity = '0.8';
+            ghost.style.borderRadius = '8px';
+            ghost.style.overflow = 'hidden';
+            ghost.style.boxShadow = '0 4px 20px rgba(0, 206, 209, 0.5)';
+            ghost.innerHTML = '<img src="/images/wormhole-galaxy.svg" style="width:100%;height:100%;object-fit:cover;">';
+            ghost.style.left = (e.clientX - 80) + 'px';
+            ghost.style.top = (e.clientY - 50) + 'px';
             document.body.appendChild(ghost);
 
             let dragStartTime = Date.now();
@@ -1159,8 +1163,8 @@ function setupToolbarButtons() {
             window.wormholeZoomAnimationFrame = wormholeZoomAnimationFrame;
 
             const onMouseMove = (moveEvent) => {
-                ghost.style.left = (moveEvent.clientX - 60) + 'px';
-                ghost.style.top = (moveEvent.clientY - 60) + 'px';
+                ghost.style.left = (moveEvent.clientX - 80) + 'px';
+                ghost.style.top = (moveEvent.clientY - 50) + 'px';
                 viewportManager.autoPan(moveEvent);
             };
 
@@ -2393,9 +2397,8 @@ function setupPaletteCards() {
             // Scale padding to maintain proportions
             palette.style.padding = `${basePadding * currentScale}px`;
 
-            // Scale add-card button height
+            // Scale add-card button margin to match padding
             if (addCardBtn) {
-                addCardBtn.style.minHeight = `${baseButtonHeight * currentScale}px`;
                 addCardBtn.style.marginBottom = `${basePadding * currentScale}px`;
             }
 

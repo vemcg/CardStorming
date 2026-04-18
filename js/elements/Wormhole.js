@@ -27,59 +27,57 @@ export class Wormhole extends DraggableElement {
         wormhole.dataset.partnerId = this.partnerId;
 
         wormhole.style.position = 'absolute';
-        wormhole.style.width = '120px';
-        wormhole.style.height = '120px';
-        wormhole.style.backgroundColor = 'rgba(255, 255, 255, 0.95)';
-        wormhole.style.border = '3px solid #666';
-        wormhole.style.borderRadius = '50%';
+        wormhole.style.width = '160px';
+        wormhole.style.height = '100px';
+        wormhole.style.backgroundColor = 'transparent';
+        wormhole.style.border = 'none';
+        wormhole.style.borderRadius = '8px';
         wormhole.style.display = 'flex';
+        wormhole.style.flexDirection = 'column';
         wormhole.style.alignItems = 'center';
-        wormhole.style.justifyContent = 'center';
+        wormhole.style.justifyContent = 'flex-start';
         wormhole.style.cursor = 'pointer';
         wormhole.style.zIndex = String(this.zIndex);
-        wormhole.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.3)';
+        wormhole.style.overflow = 'visible';
         wormhole.style.pointerEvents = 'auto';  // Ensure pointer events are enabled
 
-        // Create inner container for SVG and label
-        const innerContainer = document.createElement('div');
-        innerContainer.style.display = 'flex';
-        innerContainer.style.flexDirection = 'column';
-        innerContainer.style.alignItems = 'center';
-        innerContainer.style.justifyContent = 'center';
-        innerContainer.style.width = '100%';
-        innerContainer.style.height = '100%';
-        innerContainer.style.pointerEvents = 'none'; // Let events pass through to parent wormhole div
+        // Create image container
+        const imageContainer = document.createElement('div');
+        imageContainer.style.width = '100%';
+        imageContainer.style.height = '100%';
+        imageContainer.style.borderRadius = '8px';
+        imageContainer.style.overflow = 'hidden';
+        imageContainer.style.boxShadow = '0 0 15px rgba(0, 206, 209, 0.6)';
+        imageContainer.style.pointerEvents = 'none';
 
-        // Get SVG from wormhole button
-        const wormholeBtnElement = document.getElementById('wormhole-btn');
-        if (wormholeBtnElement) {
-            const svgContainer = document.createElement('div');
-            svgContainer.innerHTML = wormholeBtnElement.innerHTML;
-            const svg = svgContainer.querySelector('svg');
-            if (svg) {
-                svg.style.width = '80px';
-                svg.style.height = '80px';
-            }
-            innerContainer.appendChild(svgContainer);
-        }
+        // Use galaxy image
+        const img = document.createElement('img');
+        img.src = '/images/wormhole-galaxy.svg';
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'cover';
+        img.style.display = 'block';
+        imageContainer.appendChild(img);
+        wormhole.appendChild(imageContainer);
 
         // Add name label if provided
         if (this.name) {
             const label = document.createElement('div');
+            label.className = 'wormhole-label';
             label.style.fontSize = '12px';
             label.style.fontWeight = 'bold';
-            label.style.color = '#333';
-            label.style.marginTop = '5px';
+            label.style.color = '#fff';
+            label.style.textShadow = '0 0 4px rgba(0, 0, 0, 0.8)';
+            label.style.marginTop = '4px';
             label.style.textAlign = 'center';
-            label.style.maxWidth = '110px';
+            label.style.maxWidth = '150px';
             label.style.overflow = 'hidden';
             label.style.textOverflow = 'ellipsis';
             label.style.whiteSpace = 'nowrap';
+            label.style.pointerEvents = 'none';
             label.textContent = this.name;
-            innerContainer.appendChild(label);
+            wormhole.appendChild(label);
         }
-
-        wormhole.appendChild(innerContainer);
 
         this.element = wormhole;
         this.updatePosition(viewportManager);
