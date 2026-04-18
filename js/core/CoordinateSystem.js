@@ -37,17 +37,6 @@ export class CoordinateSystem {
         const workspaceX = (screenRelativeToCenterX - currentPan.x) / currentZoom;
         const workspaceY = (screenRelativeToCenterY - currentPan.y) / currentZoom;
 
-        debugLog.info('screenToWorkspace', {
-            screenX, screenY,
-            viewportRect: { left: rect.left, top: rect.top, width: viewportWidth, height: viewportHeight },
-            viewportCenter: { centerX, centerY },
-            padding: { paddingLeft, paddingTop },
-            screenRelativeToViewport: { x: screenRelativeX, y: screenRelativeY },
-            screenRelativeToCenter: { x: screenRelativeToCenterX, y: screenRelativeToCenterY },
-            pan: currentPan,
-            zoom: currentZoom,
-            result: { workspaceX, workspaceY }
-        });
 
         return { x: workspaceX, y: workspaceY };
     }
@@ -75,15 +64,6 @@ export class CoordinateSystem {
         const workspaceX = screenRelativeToCenterX / currentZoom;
         const workspaceY = screenRelativeToCenterY / currentZoom;
 
-        debugLog.info('screenToWorkspaceNoPan', {
-            screenX, screenY,
-            viewportRect: { left: rect.left, top: rect.top, width: viewportWidth, height: viewportHeight },
-            viewportCenter: { centerX, centerY },
-            padding: { paddingLeft, paddingTop },
-            screenRelativeToCenter: { x: screenRelativeToCenterX, y: screenRelativeToCenterY },
-            zoom: currentZoom,
-            result: { workspaceX, workspaceY }
-        });
 
         return { x: workspaceX, y: workspaceY };
     }
@@ -109,11 +89,6 @@ export class CoordinateSystem {
         const cssX = workspaceX + centerX;
         const cssY = workspaceY + centerY;
 
-        debugLog.info('workspaceToCSS', {
-            workspaceX, workspaceY,
-            viewportCenter: { centerX, centerY },
-            result: { cssX, cssY }
-        });
 
         return { x: cssX, y: cssY };
     }

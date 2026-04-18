@@ -8,7 +8,7 @@ export class ViewportManager {
         this.viewportContent = viewportContentElement;
 
         // Zoom limits
-        this.MIN_ZOOM = 0.1;
+        this.MIN_ZOOM = 0.02;
         this.MAX_ZOOM = 2.0;
         this.currentZoom = 1.0;
 
@@ -20,11 +20,14 @@ export class ViewportManager {
 
         // Auto-pan settings
         this.EDGE_RATIO = 0.15;
-        this.PAN_SPEED = 3.0; // Speed up auto-pan
+        this.PAN_SPEED = 80;        // px per step (throttled to ~1.3 steps/sec)
+        this.lastAutoPanTime = 0;
 
         // Auto-zoom settings
-        this.ZOOM_SPEED = 0.005; // Speed up auto-zoom
+        this.ZOOM_SPEED = 0.08;     // zoom units per step (throttled to ~1.3 steps/sec)
         this.ZOOM_DELAY_MS = 1500;
+        this.DRAG_MIN_ZOOM = 0.02;  // don't zoom out further than this during drag
+        this.lastAutoZoomTime = 0;
 
         // Manual zoom tracking (for restoring after auto-zoom)
         this.manualZoom = 1.0;
@@ -136,12 +139,16 @@ export class ViewportManager {
     }
 
     /**
-     * Gradually zoom out (for auto-zoom during drag)
+     * Gradually zoom out (for auto-zoom during drag) — throttled to ~60fps
      */
     zoomOutGradual() {
-        if (this.currentZoom > this.MIN_ZOOM) {
-            const newZoom = Math.max(this.MIN_ZOOM, this.currentZoom - this.ZOOM_SPEED);
-            this.zoomTo(newZoom); // Use zoomTo to properly adjust pan
+        const now = Date.now();
+        if (now - this.lastAutoZoomTime < 250) return;
+        this.lastAutoZoomTime = now;
+
+        if (this.currentZoom > this.DRAG_MIN_ZOOM) {
+            const newZoom = Math.max(this.DRAG_MIN_ZOOM, this.currentZoom - this.ZOOM_SPEED);
+            this.zoomTo(newZoom);
         }
     }
 
@@ -205,61 +212,37 @@ export class ViewportManager {
     }
 
     /**
-     * Auto-pan when card is dragged beyond half the distance to viewport edge
-     * @param {number} startX - Card's initial workspace X position
-     * @param {number} startY - Card's initial workspace Y position
-     * @param {number} currentX - Card's current workspace X position
-     * @param {number} currentY - Card's current workspace Y position
+     * Auto-pan when cursor is near the viewport edge — throttled to ~60fps.
+     * @param {number} mouseClientX - cursor clientX
+     * @param {number} mouseClientY - cursor clientY
      * @returns {boolean} true if panning occurred
      */
-    autoPan(startX, startY, currentX, currentY) {
+    autoPan(mouseClientX, mouseClientY) {
+        const now = Date.now();
+        if (now - this.lastAutoPanTime < 250) return false;
+        this.lastAutoPanTime = now;
+
         const rect = this.viewport.getBoundingClientRect();
-
-        // Convert workspace positions to screen coordinates to measure distance to edges
-        const startScreenX = (startX * this.currentZoom) + this.currentPan.x;
-        const startScreenY = (startY * this.currentZoom) + this.currentPan.y;
-        const currentScreenX = (currentX * this.currentZoom) + this.currentPan.x;
-        const currentScreenY = (currentY * this.currentZoom) + this.currentPan.y;
-
-        // Calculate how far the card has moved from start position
-        const movedX = currentScreenX - startScreenX;
-        const movedY = currentScreenY - startScreenY;
-
-        // Calculate distances from start position to viewport edges
-        const distToLeft = startScreenX;
-        const distToRight = rect.width - startScreenX;
-        const distToTop = startScreenY;
-        const distToBottom = rect.height - startScreenY;
-
+        const MARGIN = 60;
         let didPan = false;
 
-        // Pan when moved more than 65% of the distance toward an edge (less aggressive)
-        const threshold = 0.65;
-        if (movedX < 0 && Math.abs(movedX) > distToLeft * threshold) {
-            // Moving left, passed threshold to left edge
+        if (mouseClientX - rect.left < MARGIN) {
             this.currentPan.x += this.PAN_SPEED;
             didPan = true;
-        }
-        if (movedX > 0 && movedX > distToRight * threshold) {
-            // Moving right, passed threshold to right edge
+        } else if (rect.right - mouseClientX < MARGIN) {
             this.currentPan.x -= this.PAN_SPEED;
             didPan = true;
         }
-        if (movedY < 0 && Math.abs(movedY) > distToTop * threshold) {
-            // Moving up, passed threshold to top edge
+
+        if (mouseClientY - rect.top < MARGIN) {
             this.currentPan.y += this.PAN_SPEED;
             didPan = true;
-        }
-        if (movedY > 0 && movedY > distToBottom * threshold) {
-            // Moving down, passed threshold to bottom edge
+        } else if (rect.bottom - mouseClientY < MARGIN) {
             this.currentPan.y -= this.PAN_SPEED;
             didPan = true;
         }
 
-        if (didPan) {
-            this.applyTransform();
-        }
-
+        if (didPan) this.applyTransform();
         return didPan;
     }
 

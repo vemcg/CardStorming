@@ -589,7 +589,7 @@ body {
     border: 1px solid #999;
     border-radius: 3px;
     box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
-    cursor: move;
+    cursor: grab;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -602,6 +602,10 @@ body {
 
 .viewport-card:hover {
     box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.3);
+}
+
+.viewport-card * {
+    cursor: grab;
 }
 
 .viewport-card .card-header {

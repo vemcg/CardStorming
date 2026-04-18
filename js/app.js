@@ -221,6 +221,9 @@ async function openProject(projectId, skipIdentityCheck = false) {
     currentProjectId = projectId;
     isProjectOpen = true;
 
+    // Remember this as the last opened project for auto-restore on next load
+    localStorage.setItem('lastProjectId', projectId);
+
     // Record project access time for sorting in File > Open menu
     const projectAccessTimes = JSON.parse(localStorage.getItem('projectAccessTimes') || '{}');
     projectAccessTimes[projectId] = Date.now();
@@ -373,7 +376,7 @@ function enableToolbarButtons() {
         'zoom-search-btn',
         'zoom-in-btn',
         'zoom-out-btn',
-        'zoom-center-btn'
+        'center-btn'
     ];
 
     buttons.forEach(id => {
@@ -387,11 +390,10 @@ function enableToolbarButtons() {
 }
 
 function disableToolbarButtons() {
-    // Only disable write operations, keep zoom buttons enabled for read-only mode
+    // Only disable write operations, keep zoom/nav buttons enabled always
     const writeButtons = [
         'add-card-btn',
         'add-wormhole-btn',
-        'zoom-search-btn'
     ];
 
     writeButtons.forEach(id => {
@@ -403,8 +405,8 @@ function disableToolbarButtons() {
         }
     });
 
-    // Zoom buttons stay enabled in read-only mode
-    const zoomButtons = ['zoom-in-btn', 'zoom-out-btn', 'zoom-center-btn'];
+    // Zoom and nav buttons always stay enabled
+    const zoomButtons = ['zoom-in-btn', 'zoom-out-btn', 'center-btn', 'zoom-search-btn'];
     zoomButtons.forEach(id => {
         const btn = document.getElementById(id);
         if (btn) {
@@ -823,6 +825,7 @@ function setupMenuHandlers() {
         closeMenuItem.addEventListener('click', (e) => {
             e.preventDefault();
             if (isProjectOpen && confirm('Close the current project?')) {
+                localStorage.removeItem('lastProjectId');
                 closeProject();
             }
         });
@@ -857,6 +860,7 @@ function setupMenuHandlers() {
                     }
 
                     // Close the project locally
+                    localStorage.removeItem('lastProjectId');
                     closeProject();
 
                     debugLog.info('Left project', { projectId: currentProjectId });
@@ -974,6 +978,42 @@ function setupMenuHandlers() {
 // ZOOM CONTROLS
 // ============================================================================
 
+function zoomToFit() {
+    const cards = Array.from(appState.cards.values());
+    const CARD_W = 150, CARD_H = 120, PADDING = 100;
+
+    if (cards.length === 0) {
+        viewportManager.currentZoom = 1.0;
+        viewportManager.panTo(0, 0);
+        viewportManager.saveManualZoom();
+        return;
+    }
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const card of cards) {
+        minX = Math.min(minX, card.x - PADDING);
+        minY = Math.min(minY, card.y - PADDING);
+        maxX = Math.max(maxX, card.x + CARD_W + PADDING);
+        maxY = Math.max(maxY, card.y + CARD_H + PADDING);
+    }
+
+    const boundsW = maxX - minX;
+    const boundsH = maxY - minY;
+    const rect = viewportManager.viewport.getBoundingClientRect();
+    const style = window.getComputedStyle(viewportManager.viewport);
+    const pad = parseFloat(style.paddingLeft);
+    const viewW = rect.width - pad * 2;
+    const viewH = rect.height - pad * 2;
+
+    const targetZoom = Math.min(viewW / boundsW, viewH / boundsH, viewportManager.MAX_ZOOM);
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    viewportManager.currentZoom = Math.max(viewportManager.MIN_ZOOM, targetZoom);
+    viewportManager.panTo(centerX, centerY);
+    viewportManager.saveManualZoom();
+}
+
 function setupZoomControls() {
     const zoomOutBtn = document.getElementById('zoom-out-btn');
     const zoomInBtn = document.getElementById('zoom-in-btn');
@@ -1031,58 +1071,19 @@ function setupZoomControls() {
         zoomInBtn.addEventListener('mouseleave', stopZooming);
     }
 
-    // Track center button state for double-click behavior and focal point toggling
-    let lastCenterClickTime = 0;
-    let savedFocalPoint = null; // The focal point we're toggling back to (previous location)
-    let isShowingCurrentFocal = false; // Track which focal point we're currently showing
-    const DOUBLE_CLICK_THRESHOLD = 500; // ms
-
     if (centerBtn) {
         centerBtn.addEventListener('click', (e) => {
             e.preventDefault();
+            // Single click: pan to workspace origin at current zoom
+            // Double-click (detected via dblclick) resets zoom to 1 as well
+            viewportManager.panTo(0, 0);
+        });
 
-            const now = Date.now();
-            const timeSinceLastClick = now - lastCenterClickTime;
-            lastCenterClickTime = now;
-
-            // Get where the focal point currently is (e.g., where you dropped a card)
-            const dropFocal = { ...viewportManager.focalPoint };
-
-            // Fast double-click (within threshold) = restore preferred zoom level AND center on current focal
-            if (timeSinceLastClick < DOUBLE_CLICK_THRESHOLD) {
-                // First pan to center the focal point, then zoom to manual zoom level
-                viewportManager.panTo(dropFocal.x, dropFocal.y);
-                viewportManager.zoomTo(viewportManager.manualZoom, dropFocal.x, dropFocal.y);
-                debugLog.info('Restored preferred zoom level and centered', {
-                    zoom: viewportManager.currentZoom,
-                    focalPoint: viewportManager.focalPoint
-                });
-                return;
-            }
-
-            // Single click logic:
-            // - First click: center on current focal point (where card was dropped), save the viewport center as "previous"
-            // - Second click: go back to saved "previous" location
-            // - Third click: go back to drop focal point
-            // etc.
-
-            if (!isShowingCurrentFocal) {
-                // We're not currently centered on the drop focal, so center on it
-                // First, save the current viewport center as the "previous" location
-                const viewportCenterX = -viewportManager.currentPan.x / viewportManager.currentZoom;
-                const viewportCenterY = -viewportManager.currentPan.y / viewportManager.currentZoom;
-                savedFocalPoint = { x: viewportCenterX, y: viewportCenterY };
-
-                // Center on the drop focal point
-                viewportManager.panTo(dropFocal.x, dropFocal.y);
-                isShowingCurrentFocal = true;
-            } else {
-                // We're currently showing the drop focal, so toggle back to saved location
-                if (savedFocalPoint) {
-                    viewportManager.panTo(savedFocalPoint.x, savedFocalPoint.y);
-                }
-                isShowingCurrentFocal = false;
-            }
+        centerBtn.addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            viewportManager.currentZoom = 1.0;
+            viewportManager.panTo(0, 0);
+            viewportManager.saveManualZoom();
         });
     }
 }
@@ -1095,30 +1096,11 @@ function setupToolbarButtons() {
     const zoomSearchBtn = document.getElementById('zoom-search-btn');
     const wormholeBtn = document.getElementById('wormhole-btn');
 
-    // Zoom-search tool
+    // Zoom-to-fit: zoom and pan to show all cards
     if (zoomSearchBtn) {
-        zoomSearchBtn.addEventListener('mousedown', (e) => {
+        zoomSearchBtn.addEventListener('click', (e) => {
             e.preventDefault();
-
-            const tool = new ZoomSearchTool(0, 0);
-            appState.currentDrag = tool;
-            tool.startDrag(e, viewportManager, appState);
-
-            const onMouseMove = (moveEvent) => {
-                tool.drag(moveEvent, viewportManager, appState);
-            };
-
-            const onMouseUp = (upEvent) => {
-                tool.endDrag(upEvent, viewportManager, appState);
-                appState.currentDrag = null;
-                document.removeEventListener('mousemove', onMouseMove);
-                document.removeEventListener('mouseup', onMouseUp);
-            };
-
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
-
-            debugLog.info('Zoom-search tool activated');
+            zoomToFit();
         });
     }
 
@@ -1165,7 +1147,7 @@ function setupToolbarButtons() {
             const onMouseMove = (moveEvent) => {
                 ghost.style.left = (moveEvent.clientX - 80) + 'px';
                 ghost.style.top = (moveEvent.clientY - 50) + 'px';
-                viewportManager.autoPan(moveEvent);
+                viewportManager.autoPan(moveEvent.clientX, moveEvent.clientY);
             };
 
             const onMouseUp = async (upEvent) => {
@@ -2611,11 +2593,14 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (!hasInitiallyConnected) {
             hasInitiallyConnected = true;
 
-            // Get project ID from URL
+            // Get project ID from URL, or fall back to last opened project
             const projectIdFromURL = getProjectIdFromURL();
+            const lastProjectId = localStorage.getItem('lastProjectId');
 
             if (projectIdFromURL) {
                 openProject(projectIdFromURL);
+            } else if (lastProjectId) {
+                openProject(lastProjectId);
             } else {
                 closeProject();
                 // Update UI for initial state (no project, maybe no auth)

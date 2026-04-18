@@ -15,6 +15,7 @@ export class Card extends DraggableElement {
         this.zIndex = zIndex;
 
         this.isExpanded = false;
+        this.enableAutoZoom = true;
     }
 
     /**
@@ -145,16 +146,19 @@ export class Card extends DraggableElement {
     onDrop(e, viewportManager, appState) {
         debugLog.info('Card dropped', { id: this.id, x: this.x, y: this.y });
 
-        // Check if dropped on a wormhole
+        // Check if dropped on a wormhole (bounding box overlap)
+        const cardW = 150, cardH = 120;
+        const wormW = 160, wormH = 100;
         const wormholes = Array.from(appState.wormholes.values());
         for (const wormhole of wormholes) {
-            const distance = Math.sqrt(
-                Math.pow(this.x - wormhole.x, 2) +
-                Math.pow(this.y - wormhole.y, 2)
+            const overlaps = (
+                this.x < wormhole.x + wormW &&
+                this.x + cardW > wormhole.x &&
+                this.y < wormhole.y + wormH &&
+                this.y + cardH > wormhole.y
             );
 
-            // If within 60 pixels of wormhole center, teleport to partner
-            if (distance < 60) {
+            if (overlaps) {
                 const partner = appState.wormholes.get(wormhole.partnerId);
                 if (partner) {
                     // Calculate offset from drag start to wormhole

@@ -11,7 +11,7 @@ export class DraggableElement {
 
         // Options
         this.isPersistent = options.isPersistent ?? true;  // false only for ZoomSearchTool
-        this.enableAutoZoom = true;      // All elements get auto-zoom
+        this.enableAutoZoom = false;     // Subclasses opt in (e.g. ZoomSearchTool)
         this.enableCardPreview = true;   // All elements get card preview
 
         // DOM element (set by render())
@@ -79,17 +79,21 @@ export class DraggableElement {
         this.dragStartWorkspaceY = this.y;
         this.hasMoved = false;
 
-        // Store the initial mouse position in workspace coordinates
-        // This allows us to maintain the grab point offset throughout the drag
-        const initialWorkspacePos = CoordinateSystem.screenToWorkspaceNoPan(
+        // Store grab offset in workspace coords (pan-aware so card stays under cursor even when viewport pans)
+        const initialWorkspacePos = CoordinateSystem.screenToWorkspace(
             e.clientX,
             e.clientY,
             viewportManager.viewport,
-            viewportManager.currentZoom
+            viewportManager.currentZoom,
+            viewportManager.currentPan
         );
 
         this.dragOffsetX = this.x - initialWorkspacePos.x;
         this.dragOffsetY = this.y - initialWorkspacePos.y;
+
+        // Snapshot the user's zoom so endDrag can restore it after auto-zoom
+        viewportManager.saveManualZoom();
+        this.dragStartZoom = viewportManager.currentZoom;
 
         // Store original z-index
         this.originalZIndex = this.zIndex;
@@ -101,10 +105,6 @@ export class DraggableElement {
             this.element.style.zIndex = String(maxZ + 1000);
         }
 
-        // Start auto-zoom animation if enabled
-        if (this.enableAutoZoom) {
-            this.startAutoZoom(viewportManager);
-        }
 
         debugLog.info(`${this.constructor.name} drag started`, {
             x: this.x,
@@ -130,29 +130,50 @@ export class DraggableElement {
 
         if (!this.hasMoved) return; // Don't move until threshold crossed
 
-        // Update position to follow mouse (no pan offset)
-        const workspacePos = CoordinateSystem.screenToWorkspaceNoPan(
+        // dragOffsetX/Y is in workspace coords; screenToWorkspace already accounts for
+        // current pan and zoom, so the offset is added directly — no correction needed.
+        const workspacePos = CoordinateSystem.screenToWorkspace(
             e.clientX,
             e.clientY,
             viewportManager.viewport,
-            viewportManager.currentZoom
+            viewportManager.currentZoom,
+            viewportManager.currentPan
         );
 
         this.x = workspacePos.x + this.dragOffsetX;
         this.y = workspacePos.y + this.dragOffsetY;
         this.updatePosition(viewportManager);
 
-        // Auto-pan only after dragging for a bit (1 second delay)
+        // Auto-pan and auto-zoom when cursor is near the viewport edge
         const dragDuration = Date.now() - this.dragStartTime;
-        const AUTO_PAN_DELAY = 1000; // ms before auto-pan activates
+        const AUTO_PAN_DELAY = 1000;
 
         if (dragDuration > AUTO_PAN_DELAY) {
-            viewportManager.autoPan(
-                this.dragStartWorkspaceX,
-                this.dragStartWorkspaceY,
-                this.x,
-                this.y
+            viewportManager.autoPan(e.clientX, e.clientY);
+
+            if (this.enableAutoZoom) {
+                const rect = viewportManager.viewport.getBoundingClientRect();
+                const nearEdge = (
+                    e.clientX - rect.left < 60 ||
+                    rect.right - e.clientX < 60 ||
+                    e.clientY - rect.top < 60 ||
+                    rect.bottom - e.clientY < 60
+                );
+                if (nearEdge) viewportManager.zoomOutGradual();
+            }
+
+            // Pan/zoom changed the viewport transform — recompute card position so it
+            // stays under the cursor without waiting for the next mousemove event.
+            const updatedPos = CoordinateSystem.screenToWorkspace(
+                e.clientX,
+                e.clientY,
+                viewportManager.viewport,
+                viewportManager.currentZoom,
+                viewportManager.currentPan
             );
+            this.x = updatedPos.x + this.dragOffsetX;
+            this.y = updatedPos.y + this.dragOffsetY;
+            this.updatePosition(viewportManager);
         }
 
         // Update nearest card for preview
@@ -191,10 +212,6 @@ export class DraggableElement {
             }
         }
 
-        // Note: Removed auto-zoom snap-back. System only snaps back after
-        // explicit auto-zoom operations (like wormhole creation), not after
-        // normal card dragging. User's preferred zoom is set by zoom buttons.
-
         // Determine if it was a click or drag
         if (!this.hasMoved && dragDuration < this.CLICK_TIME_THRESHOLD) {
             this.onClick(e, viewportManager, appState);
@@ -202,6 +219,13 @@ export class DraggableElement {
             // Set focal point to drop location
             viewportManager.focalPoint.x = this.x;
             viewportManager.focalPoint.y = this.y;
+
+            // If auto-zoom changed the zoom during drag, restore the user's saved zoom
+            // and center the view on the dropped card
+            if (this.enableAutoZoom && viewportManager.currentZoom !== viewportManager.manualZoom) {
+                viewportManager.currentZoom = viewportManager.manualZoom;
+                viewportManager.panTo(this.x, this.y);
+            }
 
             this.onDrop(e, viewportManager, appState);
         }
