@@ -16,6 +16,7 @@ export class Card extends DraggableElement {
 
         this.isExpanded = false;
         this.enableAutoZoom = true;
+        this._lastClickTime = 0;
     }
 
     /**
@@ -122,22 +123,25 @@ export class Card extends DraggableElement {
     }
 
     /**
-     * Handle click - open edit modal
+     * Handle click - single click selects, double click opens edit modal
      */
     onClick(e, viewportManager, appState) {
-        debugLog.info('Card clicked - opening edit modal', { id: this.id });
+        const now = Date.now();
+        const isDouble = (now - this._lastClickTime) < 350;
+        this._lastClickTime = now;
 
-        // Set focal point to card
-        viewportManager.setFocalPointFromEvent(e);
-
-        // Trigger edit modal (will be handled by app.js)
-        const editEvent = new CustomEvent('card:edit', {
-            detail: {
-                card: this,
-                mouseEvent: e
-            }
-        });
-        document.dispatchEvent(editEvent);
+        if (isDouble) {
+            debugLog.info('Card double-clicked - opening edit modal', { id: this.id });
+            viewportManager.setFocalPointFromEvent(e);
+            document.dispatchEvent(new CustomEvent('card:edit', {
+                detail: { card: this, mouseEvent: e }
+            }));
+        } else {
+            debugLog.info('Card single-clicked - selecting', { id: this.id });
+            document.dispatchEvent(new CustomEvent('card:select', {
+                detail: { card: this, addToSelection: e.ctrlKey || e.metaKey }
+            }));
+        }
     }
 
     /**

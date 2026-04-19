@@ -320,9 +320,14 @@ export class ConstellationManager {
      * Attach drag event handlers to constellation background
      */
     attachDragHandlers(background, constellationId, cards) {
+        let mouseDownClientX = 0, mouseDownClientY = 0;
+
         const onMouseDown = (e) => {
             e.preventDefault();
             e.stopPropagation();
+
+            mouseDownClientX = e.clientX;
+            mouseDownClientY = e.clientY;
 
             this.isDraggingConstellation = true;
             this.draggedConstellationId = constellationId;
@@ -417,11 +422,20 @@ export class ConstellationManager {
             }
         };
 
-        const onMouseUp = () => {
+        const onMouseUp = (e) => {
             if (!this.isDraggingConstellation) return;
 
             background.style.cursor = 'grab';
             this.isDraggingConstellation = false;
+
+            // If mouse barely moved it was a click — select the constellation
+            const dx = e.clientX - mouseDownClientX;
+            const dy = e.clientY - mouseDownClientY;
+            if (Math.sqrt(dx * dx + dy * dy) < 5) {
+                document.dispatchEvent(new CustomEvent('constellation:select', {
+                    detail: { constId: constellationId, addToSelection: e.ctrlKey || e.metaKey }
+                }));
+            }
 
             // Remove global mouse handlers
             document.removeEventListener('mousemove', onMouseMove);

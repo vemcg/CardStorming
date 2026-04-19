@@ -385,6 +385,26 @@ body {
     display: block;
 }
 
+.scan-controls {
+    display: flex;
+    align-items: center;
+    border-left: 1px solid #ccc;
+    margin-left: 4px;
+    padding-left: 4px;
+}
+
+.scan-counter {
+    font-size: 11px;
+    color: #666;
+    min-width: 28px;
+    text-align: center;
+    user-select: none;
+}
+
+.scan-start-btn svg {
+    display: block;
+}
+
 .viewport-coordinates {
     display: inline-block;
     padding: 4px 12px;
@@ -606,6 +626,15 @@ body {
 
 .viewport-card * {
     cursor: grab;
+}
+
+.viewport-card.card-selected {
+    outline: 3px solid #1976D2;
+    outline-offset: 2px;
+}
+
+.constellation-shadow.constellation-selected {
+    background-color: #BBDEFB !important;
 }
 
 .viewport-card .card-header {

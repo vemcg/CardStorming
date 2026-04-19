@@ -363,6 +363,10 @@ function closeProject() {
     // Clear palette UI
     renderPaletteCards();
 
+    // Reset scan and selection state
+    if (window._resetScan) window._resetScan();
+    if (window._resetSelection) window._resetSelection();
+
     // Disable toolbar buttons
     disableToolbarButtons();
 
@@ -376,7 +380,8 @@ function enableToolbarButtons() {
         'zoom-search-btn',
         'zoom-in-btn',
         'zoom-out-btn',
-        'center-btn'
+        'center-btn',
+        'scan-start-btn'
     ];
 
     buttons.forEach(id => {
@@ -1238,6 +1243,143 @@ function setupToolbarButtons() {
 }
 
 // ============================================================================
+// WORKSPACE SCAN / NAVIGATE
+// ============================================================================
+
+function setupScanControls() {
+    let scanList = [];
+    let scanIndex = -1;
+
+    const startBtn  = document.getElementById('scan-start-btn');
+    const prevBtn   = document.getElementById('scan-prev-btn');
+    const nextBtn   = document.getElementById('scan-next-btn');
+    const counter   = document.getElementById('scan-counter');
+
+    function cardBounds(cards, padding = 60) {
+        const CARD_W = 150, CARD_H = 120;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const c of cards) {
+            minX = Math.min(minX, c.x - padding);
+            minY = Math.min(minY, c.y - padding);
+            maxX = Math.max(maxX, c.x + CARD_W + padding);
+            maxY = Math.max(maxY, c.y + CARD_H + padding);
+        }
+        return { minX, minY, maxX, maxY };
+    }
+
+    function buildList() {
+        const allCards = Array.from(appState.cards.values());
+        if (allCards.length === 0) return [];
+
+        const items = [];
+        const visited = new Set();
+
+        // Constellation groups (2+ cards)
+        if (window.constellationManager) {
+            for (const [constId, cardIdSet] of window.constellationManager.constellations) {
+                if (cardIdSet.size < 2) continue;
+                const cards = Array.from(cardIdSet).map(id => appState.cards.get(id)).filter(Boolean);
+                if (cards.length < 2) continue;
+                items.push({ type: 'constellation', cards, bounds: cardBounds(cards) });
+                cards.forEach(c => visited.add(c.id));
+            }
+        }
+
+        // Standalone cards — skip any with invalid or wildly out-of-range coordinates
+        const MAX_COORD = 500000;
+        for (const card of allCards) {
+            if (!visited.has(card.id)) {
+                if (!isFinite(card.x) || !isFinite(card.y)) continue;
+                if (Math.abs(card.x) > MAX_COORD || Math.abs(card.y) > MAX_COORD) continue;
+                items.push({ type: 'card', cards: [card], bounds: cardBounds([card], 0) });
+            }
+        }
+
+        // Sort reading order: rows (150px buckets) top-to-bottom, then left-to-right within row
+        const ROW_HEIGHT = 150;
+        items.sort((a, b) => {
+            const aRow = Math.floor(a.bounds.minY / ROW_HEIGHT);
+            const bRow = Math.floor(b.bounds.minY / ROW_HEIGHT);
+            if (aRow !== bRow) return aRow - bRow;
+            return a.bounds.minX - b.bounds.minX;
+        });
+
+        return items;
+    }
+
+    function navigateTo(item) {
+        const { minX, minY, maxX, maxY } = item.bounds;
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+
+        if (item.type === 'card') {
+            // Single card: use a comfortable zoom (at least 0.8, respect manual zoom up to 1.5)
+            const zoom = Math.max(0.8, Math.min(1.5, viewportManager.manualZoom));
+            viewportManager.currentZoom = zoom;
+        } else {
+            // Constellation: zoom to fit bounding box
+            const boundsW = maxX - minX;
+            const boundsH = maxY - minY;
+            const rect = viewportManager.viewport.getBoundingClientRect();
+            const style = window.getComputedStyle(viewportManager.viewport);
+            const pad = parseFloat(style.paddingLeft);
+            const viewW = rect.width - pad * 2;
+            const viewH = rect.height - pad * 2;
+            const fit = Math.min(viewW / boundsW, viewH / boundsH, viewportManager.MAX_ZOOM);
+            viewportManager.currentZoom = Math.max(viewportManager.MIN_ZOOM, fit);
+        }
+
+        viewportManager.panTo(cx, cy);
+        viewportManager.saveManualZoom();
+        updateUI();
+    }
+
+    function updateUI() {
+        if (prevBtn) prevBtn.disabled = scanList.length === 0 || scanIndex <= 0;
+        if (nextBtn) nextBtn.disabled = scanList.length === 0 || scanIndex >= scanList.length - 1;
+        if (counter) {
+            counter.textContent = scanList.length > 0 ? `${scanIndex + 1}/${scanList.length}` : '';
+        }
+    }
+
+    // Exposed so project open/close can reset state
+    window._resetScan = () => {
+        scanList = [];
+        scanIndex = -1;
+        updateUI();
+    };
+
+    if (startBtn) {
+        startBtn.addEventListener('click', () => {
+            scanList = buildList();
+            if (scanList.length === 0) return;
+            scanIndex = 0;
+            navigateTo(scanList[scanIndex]);
+        });
+    }
+
+    if (prevBtn) {
+        prevBtn.addEventListener('click', () => {
+            if (scanIndex > 0) {
+                scanIndex--;
+                navigateTo(scanList[scanIndex]);
+            }
+        });
+    }
+
+    if (nextBtn) {
+        nextBtn.addEventListener('click', () => {
+            if (scanIndex < scanList.length - 1) {
+                scanIndex++;
+                navigateTo(scanList[scanIndex]);
+            }
+        });
+    }
+
+    updateUI();
+}
+
+// ============================================================================
 // VIEWPORT DRAG (PANNING)
 // ============================================================================
 
@@ -1536,7 +1678,7 @@ function setupEditModal() {
             const cardId = editModal.dataset.editingCardId;
             const card = appState.getCard(cardId);
 
-            if (card && confirm('Delete this card?')) {
+            if (card) {
                 // Remove from DOM
                 if (card.element) {
                     card.element.remove();
@@ -2531,6 +2673,162 @@ function setupPaletteDropZone() {
 }
 
 // ============================================================================
+// SELECTION, COPY, PASTE, DELETE
+// ============================================================================
+
+function setupSelectionAndKeyboard() {
+    const viewportEl = document.querySelector('.viewport');
+    const viewportContentEl = document.querySelector('.viewport-content');
+
+    // Selection state
+    const sel = { cardIds: new Set(), constId: null };
+    let clipboard = []; // [{ header, body, color, authorInitials, dx, dy }]
+
+    function clearSelection() {
+        sel.cardIds.forEach(id => {
+            const card = appState.cards.get(id);
+            if (card && card.element) card.element.classList.remove('card-selected');
+        });
+        document.querySelectorAll('.constellation-shadow.constellation-selected')
+            .forEach(el => el.classList.remove('constellation-selected'));
+        sel.cardIds.clear();
+        sel.constId = null;
+    }
+
+    function selectCard(card, addToSelection = false) {
+        if (!addToSelection) clearSelection();
+        sel.cardIds.add(card.id);
+        sel.constId = null;
+        if (card.element) card.element.classList.add('card-selected');
+    }
+
+    function selectConstellation(constId, addToSelection = false) {
+        if (!addToSelection) clearSelection();
+        sel.constId = constId;
+        const cardIdSet = window.constellationManager?.constellations.get(constId);
+        if (cardIdSet) {
+            cardIdSet.forEach(id => {
+                sel.cardIds.add(id);
+                const card = appState.cards.get(id);
+                if (card && card.element) card.element.classList.add('card-selected');
+            });
+        }
+        document.querySelectorAll(`.constellation-shadow[data-constellation-id="${constId}"]`)
+            .forEach(el => el.classList.add('constellation-selected'));
+    }
+
+    function selectionCenter() {
+        const cards = Array.from(sel.cardIds).map(id => appState.cards.get(id)).filter(Boolean);
+        if (!cards.length) return { x: 0, y: 0 };
+        return {
+            x: cards.reduce((s, c) => s + c.x, 0) / cards.length,
+            y: cards.reduce((s, c) => s + c.y, 0) / cards.length
+        };
+    }
+
+    function deleteSelected() {
+        if (!sel.cardIds.size) return;
+        const toDelete = Array.from(sel.cardIds);
+        clearSelection();
+        toDelete.forEach(id => {
+            const card = appState.cards.get(id);
+            if (!card) return;
+            if (card.element) card.element.remove();
+            appState.cards.delete(id);
+            socket.emit('card:delete', { id });
+        });
+        if (window.constellationManager) {
+            window.constellationManager.updateConstellationsDebounced(Array.from(appState.cards.values()));
+        }
+    }
+
+    function copySelected() {
+        if (!sel.cardIds.size) return;
+        const center = selectionCenter();
+        clipboard = Array.from(sel.cardIds).map(id => {
+            const card = appState.cards.get(id);
+            if (!card) return null;
+            return {
+                header: card.header,
+                body: card.body,
+                color: card.color,
+                authorInitials: card.authorInitials,
+                dx: card.x - center.x,
+                dy: card.y - center.y
+            };
+        }).filter(Boolean);
+    }
+
+    function pasteCards() {
+        if (!clipboard.length || !currentProjectId) return;
+        const { x: cx, y: cy } = viewportManager.focalPoint;
+        const OFFSET = 20; // slight offset so paste isn't exactly on top of source
+        const newCards = [];
+
+        clipboard.forEach(data => {
+            const newId = 'card-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            const newX = cx + data.dx + OFFSET;
+            const newY = cy + data.dy + OFFSET;
+            const card = new Card(newX, newY, newId, data.header, data.body, data.color, data.authorInitials, 1);
+            const viewportContentEl2 = document.querySelector('.viewport-content');
+            viewportContentEl2.appendChild(card.render(viewportManager));
+            appState.addCard(card);
+            setupCardDragHandlers(card);
+            socket.emit('viewport:add', card.serialize());
+            newCards.push(card);
+        });
+
+        // Select the pasted cards
+        clearSelection();
+        newCards.forEach(card => selectCard(card, true));
+
+        if (window.constellationManager) {
+            window.constellationManager.updateConstellationsDebounced(Array.from(appState.cards.values()));
+        }
+    }
+
+    // Expose reset for project open/close
+    window._resetSelection = clearSelection;
+
+    // card:select event (from Card.onClick single-click)
+    document.addEventListener('card:select', (e) => {
+        selectCard(e.detail.card, e.detail.addToSelection);
+    });
+
+    // constellation:select event (from ConstellationManager shadow click)
+    document.addEventListener('constellation:select', (e) => {
+        selectConstellation(e.detail.constId, e.detail.addToSelection);
+    });
+
+    // Click on viewport background → clear selection
+    viewportEl.addEventListener('mousedown', (e) => {
+        if (e.target === viewportEl || e.target === viewportContentEl) {
+            clearSelection();
+        }
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+        if (!currentProjectId) return;
+        const tag = e.target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+
+        if (e.key === 'Escape') {
+            clearSelection();
+        } else if (e.key === 'Delete' || e.key === 'Backspace') {
+            e.preventDefault();
+            deleteSelected();
+        } else if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+            e.preventDefault();
+            copySelected();
+        } else if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+            e.preventDefault();
+            pasteCards();
+        }
+    });
+}
+
+// ============================================================================
 // MAIN INITIALIZATION
 // ============================================================================
 
@@ -2576,6 +2874,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     setupMenuHandlers();
     setupZoomControls();
     setupToolbarButtons();
+    setupScanControls();
+    setupSelectionAndKeyboard();
     setupPaletteCards();
     setupPaletteDropZone();
     setupViewportDrag();
