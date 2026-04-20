@@ -150,6 +150,15 @@ export class Card extends DraggableElement {
     onDrop(e, viewportManager, appState) {
         debugLog.info('Card dropped', { id: this.id, x: this.x, y: this.y });
 
+        // If card was selected before drag, moving it makes the elevated z-index permanent
+        if (this._preSelectZIndex !== undefined) {
+            const newZ = (appState ? appState.maxZIndex : 1000) + 1;
+            this.zIndex = newZ;
+            if (appState) appState.maxZIndex = newZ;
+            if (this.element) this.element.style.zIndex = String(newZ);
+            delete this._preSelectZIndex;
+        }
+
         // Check if dropped on a wormhole (bounding box overlap)
         const cardW = 150, cardH = 120;
         const wormW = 160, wormH = 100;

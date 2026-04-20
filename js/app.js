@@ -759,6 +759,167 @@ async function populateOpenSubmenu() {
     }
 }
 
+function generateReport() {
+    const projectName = appState.projectName || 'CardStorming Report';
+    const allCards = Array.from(appState.cards.values());
+    const MAX_COORD = 500000;
+
+    // Build sorted item list (same reading-order logic as scan)
+    const items = [];
+    const visited = new Set();
+    const ROW_HEIGHT = 150;
+
+    if (window.constellationManager) {
+        for (const [constId, cardIdSet] of window.constellationManager.constellations) {
+            if (cardIdSet.size < 2) continue;
+            const cards = Array.from(cardIdSet)
+                .map(id => appState.cards.get(id))
+                .filter(c => c && Math.abs(c.x) <= MAX_COORD && Math.abs(c.y) <= MAX_COORD);
+            if (cards.length < 2) continue;
+            const minX = Math.min(...cards.map(c => c.x));
+            const minY = Math.min(...cards.map(c => c.y));
+            // Sort cards within constellation top-to-bottom, left-to-right
+            cards.sort((a, b) => a.y !== b.y ? a.y - b.y : a.x - b.x);
+            items.push({ type: 'constellation', cards, minX, minY });
+            cards.forEach(c => visited.add(c.id));
+        }
+    }
+
+    for (const card of allCards) {
+        if (visited.has(card.id)) continue;
+        if (!isFinite(card.x) || !isFinite(card.y)) continue;
+        if (Math.abs(card.x) > MAX_COORD || Math.abs(card.y) > MAX_COORD) continue;
+        items.push({ type: 'card', cards: [card], minX: card.x, minY: card.y });
+    }
+
+    items.sort((a, b) => a.minY !== b.minY ? a.minY - b.minY : a.minX - b.minX);
+
+    // Returns shared initials if all cards in the array share the same non-empty authorInitials, else null
+    function sectionAuthor(cards) {
+        const inits = (cards[0].authorInitials || '').trim();
+        if (!inits) return null;
+        return cards.every(c => (c.authorInitials || '').trim() === inits) ? inits : null;
+    }
+
+    // Returns array of paragraph strings; appends [initials] to last para unless skipInitials is true
+    function cardParas(card, skipInitials = false) {
+        const body = (card.body || '').trim();
+        const initials = skipInitials ? '' : (card.authorInitials || '').trim();
+        const paras = body ? body.split(/\n\n+/).map(p => p.trim()).filter(Boolean) : [];
+        if (initials) {
+            if (paras.length > 0) paras[paras.length - 1] += ` [${initials}]`;
+            else paras.push(`[${initials}]`);
+        }
+        return paras;
+    }
+
+    // Build markdown
+    const mdLines = [`# ${projectName}`, ''];
+    for (const item of items) {
+        if (item.type === 'constellation') {
+            const sectAuth = sectionAuthor(item.cards);
+            const first = item.cards[0];
+            const h2 = (first.header || '') + (sectAuth ? ` [${sectAuth}]` : '');
+            if (h2) mdLines.push(`## ${h2}`);
+            cardParas(first, sectAuth !== null).forEach(p => mdLines.push('', p));
+            mdLines.push('');
+            for (const card of item.cards.slice(1)) {
+                if (card.header) mdLines.push(`### ${card.header}`);
+                cardParas(card, sectAuth !== null).forEach(p => mdLines.push('', p));
+                mdLines.push('');
+            }
+        } else {
+            const card = item.cards[0];
+            const cardAuth = (card.authorInitials || '').trim();
+            const h3 = (card.header || '') + (cardAuth && card.header ? ` [${cardAuth}]` : '');
+            if (h3) mdLines.push(`### ${h3}`);
+            cardParas(card, cardAuth !== '' && card.header !== '').forEach(p => mdLines.push('', p));
+            mdLines.push('');
+        }
+    }
+    const markdown = mdLines.join('\n');
+
+    // Build HTML body content
+    function cardHtml(card, skipInitials = false) {
+        return cardParas(card, skipInitials).map(p => `<p>${escHtml(p).replace(/\n/g, '<br>')}</p>`).join('');
+    }
+
+    let bodyHtml = '';
+    for (const item of items) {
+        if (item.type === 'constellation') {
+            const sectAuth = sectionAuthor(item.cards);
+            const first = item.cards[0];
+            const h2text = (first.header || '') + (sectAuth ? ` [${sectAuth}]` : '');
+            bodyHtml += `<h2>${escHtml(h2text)}</h2>`;
+            bodyHtml += cardHtml(first, sectAuth !== null);
+            for (const card of item.cards.slice(1)) {
+                if (card.header) bodyHtml += `<h3>${escHtml(card.header)}</h3>`;
+                bodyHtml += cardHtml(card, sectAuth !== null);
+            }
+            bodyHtml += `<hr>`;
+        } else {
+            const card = item.cards[0];
+            const cardAuth = (card.authorInitials || '').trim();
+            const h3text = (card.header || '') + (cardAuth && card.header ? ` [${cardAuth}]` : '');
+            if (h3text) bodyHtml += `<h3>${escHtml(h3text)}</h3>`;
+            bodyHtml += cardHtml(card, cardAuth !== '' && !!card.header);
+        }
+    }
+
+    const mdEscaped = markdown.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+    const filename = (projectName.replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'report') + '.md';
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escHtml(projectName)}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font-family: Georgia, 'Times New Roman', serif; max-width: 720px; margin: 0 auto; padding: 20px 24px 80px; color: #1a1a1a; background: #fff; line-height: 1.7; }
+  .toolbar { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #e0e0e0; padding: 10px 0; margin-bottom: 36px; display: flex; gap: 10px; z-index: 10; }
+  .btn { background: #1976D2; color: #fff; border: none; padding: 7px 16px; border-radius: 4px; cursor: pointer; font-family: sans-serif; font-size: 13px; }
+  .btn:hover { background: #1565C0; }
+  .btn-outline { background: #fff; color: #1976D2; border: 1.5px solid #1976D2; }
+  .btn-outline:hover { background: #E3F2FD; }
+  h1 { font-size: 2em; font-weight: bold; border-bottom: 2px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 32px; }
+  h2 { font-size: 1.4em; font-weight: bold; margin: 2.2em 0 0.4em; }
+  h3 { font-size: 1.1em; font-weight: bold; margin: 1.6em 0 0.3em; }
+  p { margin: 0 0 0.8em; }
+  hr { border: none; border-top: 1px solid #ddd; margin: 2.5em 0; }
+  @media print { .toolbar { display: none; } body { padding-top: 0; } }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <button class="btn" onclick="dlMarkdown()">&#8595; Download Markdown</button>
+  <button class="btn btn-outline" onclick="window.print()">Print / Save PDF</button>
+</div>
+<h1>${escHtml(projectName)}</h1>
+${bodyHtml}
+<script>
+const md = \`${mdEscaped}\`;
+function dlMarkdown() {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([md], {type:'text/markdown'}));
+  a.download = '${filename}';
+  a.click();
+}
+<\/script>
+</body>
+</html>`;
+
+    const tab = window.open('', '_blank');
+    if (!tab) { alert('Pop-up blocked — please allow pop-ups for this site.'); return; }
+    tab.document.write(html);
+    tab.document.close();
+}
+
+function escHtml(str) {
+    return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function setupMenuHandlers() {
     const projectNameEl = document.getElementById('project-name');
     const newMenuItem = document.getElementById('menu-new');
@@ -833,6 +994,15 @@ function setupMenuHandlers() {
                 localStorage.removeItem('lastProjectId');
                 closeProject();
             }
+        });
+    }
+
+    const exportReportMenuItem = document.getElementById('menu-export-report');
+    if (exportReportMenuItem) {
+        exportReportMenuItem.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (!isProjectOpen) { alert('No project is open.'); return; }
+            generateReport();
         });
     }
 
@@ -1635,6 +1805,16 @@ function setupEditModal() {
                     });
                 }
 
+                // Make the elevated z-index permanent on save (green check)
+                if (card._preSelectZIndex !== undefined) {
+                    const newZ = (appState.maxZIndex || 1000) + 1;
+                    card.zIndex = newZ;
+                    appState.maxZIndex = newZ;
+                    card.element.style.zIndex = String(newZ);
+                    delete card._preSelectZIndex;
+                    socket.emit('viewport:move', { id: cardId, x: card.x, y: card.y, zIndex: newZ });
+                }
+
                 editModal.style.display = 'none';
                 editModal.dataset.editingCardId = '';
             }
@@ -1645,6 +1825,12 @@ function setupEditModal() {
         editClose.addEventListener('click', () => {
             const cardId = editModal.dataset.editingCardId;
             const card = appState.getCard(cardId);
+
+            // Revert z-index on red X (cancel)
+            if (card && card._preSelectZIndex !== undefined) {
+                card.element.style.zIndex = String(card._preSelectZIndex);
+                delete card._preSelectZIndex;
+            }
 
             if (card && card.isUnsaved) {
                 // This is an unsaved card - Close (×) means cancel/delete it
@@ -2687,7 +2873,14 @@ function setupSelectionAndKeyboard() {
     function clearSelection() {
         sel.cardIds.forEach(id => {
             const card = appState.cards.get(id);
-            if (card && card.element) card.element.classList.remove('card-selected');
+            if (card && card.element) {
+                card.element.classList.remove('card-selected');
+                // Revert z-index unless it was permanently promoted via save
+                if (card._preSelectZIndex !== undefined) {
+                    card.element.style.zIndex = String(card._preSelectZIndex);
+                    delete card._preSelectZIndex;
+                }
+            }
         });
         document.querySelectorAll('.constellation-shadow.constellation-selected')
             .forEach(el => el.classList.remove('constellation-selected'));
@@ -2699,7 +2892,15 @@ function setupSelectionAndKeyboard() {
         if (!addToSelection) clearSelection();
         sel.cardIds.add(card.id);
         sel.constId = null;
-        if (card.element) card.element.classList.add('card-selected');
+        if (card.element) {
+            card.element.classList.add('card-selected');
+            // Pop to top, remembering the previous z-index for potential revert
+            if (card._preSelectZIndex === undefined) {
+                card._preSelectZIndex = card.zIndex;
+            }
+            const topZ = (appState.maxZIndex || 1000) + 1;
+            card.element.style.zIndex = String(topZ);
+        }
     }
 
     function selectConstellation(constId, addToSelection = false) {

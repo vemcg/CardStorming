@@ -1009,6 +1009,7 @@ io.on('connection', (socket) => {
     // Handle viewport card move
     socket.on('viewport:move', (data) => {
         const project = getProject(projectId);
+        if (!project) return;
         const { id, x, y } = data;
         const card = project.cards.find(c => c.id === id);
         if (card) {
