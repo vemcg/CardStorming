@@ -45,6 +45,7 @@ export class Card extends DraggableElement {
         card.dataset.id = this.id;
         card.dataset.header = this.header;
         card.dataset.body = this.body;
+        card.dataset.tooltip = 'Single-click to select · Double-click to edit · Drag to move · Drop on a wormhole to teleport';
 
         card.style.position = 'absolute';
         card.style.width = '150px';

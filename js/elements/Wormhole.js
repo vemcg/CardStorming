@@ -25,6 +25,7 @@ export class Wormhole extends DraggableElement {
         wormhole.className = 'wormhole-portal';
         wormhole.dataset.id = this.id;
         wormhole.dataset.partnerId = this.partnerId;
+        wormhole.dataset.tooltip = 'Wormhole — drag a card onto this portal to teleport it to the linked partner. Click to jump the viewport to the partner portal. Double-click to rename.';
 
         wormhole.style.position = 'absolute';
         wormhole.style.width = '160px';
@@ -98,9 +99,9 @@ export class Wormhole extends DraggableElement {
     }
 
     /**
-     * Handle click - edit wormhole name (with delay to detect double-click)
+     * Handle click - teleport viewport to partner wormhole
      */
-    async onClick(e, viewportManager, appState) {
+    onClick(e, viewportManager, appState) {
         // Check if this click should be prevented (double-click occurred)
         if (this.preventClick) {
             this.preventClick = false;
@@ -114,128 +115,118 @@ export class Wormhole extends DraggableElement {
             this.clickTimer = null;
         }
 
-        // Store event properties we'll need later
-        const clickX = e.clientX;
-        const clickY = e.clientY;
-
-        // Wait to see if a double-click is coming
-        this.clickTimer = setTimeout(async () => {
+        // Wait briefly to see if a double-click is coming
+        this.clickTimer = setTimeout(() => {
             this.clickTimer = null;
 
-            debugLog.info('Wormhole clicked - opening edit dialog', {
+            debugLog.info('Wormhole single-clicked - teleporting to partner', {
                 id: this.id,
-                currentName: this.name
+                partnerId: this.partnerId
             });
 
-                try {
-                    const newName = await showWormholeEditDialog(this.name, clickX, clickY);
-                    debugLog.info('Dialog returned:', { newName, type: typeof newName });
-
-                    if (newName !== null && newName !== this.name) {
-                        debugLog.info('Updating wormhole name', {
-                            id: this.id,
-                            oldName: this.name,
-                            newName: newName
-                        });
-
-                        // Update local name
-                        this.name = newName;
-
-                        // Update the label in the DOM
-                        if (this.element) {
-                            const innerContainer = this.element.querySelector('div');
-                            let label = innerContainer ? innerContainer.querySelector('div:last-child') : null;
-
-                            // Check if last child is actually a label (has textContent) or just the SVG container
-                            if (label) {
-                                const isLabel = label.textContent !== undefined && label.style.fontSize === '12px';
-                                if (isLabel) {
-                                    label.textContent = newName;
-                                } else {
-                                    // No label exists, create one
-                                    label = null;
-                                }
-                            }
-
-                            // Create label if it doesn't exist
-                            if (!label && newName && innerContainer) {
-                                label = document.createElement('div');
-                                label.style.fontSize = '12px';
-                                label.style.fontWeight = 'bold';
-                                label.style.color = '#333';
-                                label.style.marginTop = '5px';
-                                label.style.textAlign = 'center';
-                                label.style.maxWidth = '110px';
-                                label.style.overflow = 'hidden';
-                                label.style.textOverflow = 'ellipsis';
-                                label.style.whiteSpace = 'nowrap';
-                                label.textContent = newName;
-                                innerContainer.appendChild(label);
-                            }
-                        }
-
-                        // Emit to server
-                        if (appState.socket) {
-                            appState.socket.emit('wormhole:rename', {
-                                id: this.id,
-                                name: newName
-                            });
-                        }
-                    } else if (newName === null) {
-                        // Delete requested
-                        debugLog.info('Deleting wormhole pair', {
-                            id: this.id,
-                            partnerId: this.partnerId
-                        });
-
-                        // Emit to server to delete both ends
-                        if (appState.socket) {
-                            appState.socket.emit('wormhole:delete', {
-                                id1: this.id,
-                                id2: this.partnerId
-                            });
-                        }
-                    }
-                } catch (err) {
-                    if (err.message !== 'Wormhole edit cancelled') {
-                        debugLog.error('Error editing wormhole name', err);
-                    } else {
-                        debugLog.info('Wormhole edit cancelled');
-                    }
-                }
-            }, this.clickDelay);
+            const partner = appState.getWormhole(this.partnerId);
+            if (partner) {
+                viewportManager.centerOn(partner.x, partner.y);
+                debugLog.info('Teleported to partner wormhole', { partnerId: partner.id, x: partner.x, y: partner.y });
+            } else {
+                debugLog.warn('Partner wormhole not found', { partnerId: this.partnerId });
+            }
+        }, this.clickDelay);
     }
 
     /**
-     * Handle double-click - teleport to partner wormhole
+     * Handle double-click - open rename dialog
      */
-    onDoubleClick(e, viewportManager, appState) {
+    async onDoubleClick(e, viewportManager, appState) {
         // Cancel the pending single-click timer
         if (this.clickTimer) {
             clearTimeout(this.clickTimer);
             this.clickTimer = null;
         }
 
-        // Set flag to prevent onClick from executing
+        // Prevent the onClick from firing
         this.preventClick = true;
 
-        debugLog.info('Wormhole double-clicked - teleporting', {
+        const clickX = e.clientX;
+        const clickY = e.clientY;
+
+        debugLog.info('Wormhole double-clicked - opening rename dialog', {
             id: this.id,
-            partnerId: this.partnerId
+            currentName: this.name
         });
 
-        // Find the partner wormhole
-        const partner = appState.getWormhole(this.partnerId);
-        if (partner) {
-            // Center the viewport on the partner wormhole
-            viewportManager.centerOn(partner.x, partner.y);
-            debugLog.info('Teleported to partner wormhole', {
-                partnerId: partner.id,
-                x: partner.x,
-                y: partner.y
-            });
-        } else {
-            debugLog.warn('Partner wormhole not found', { partnerId: this.partnerId });
+        try {
+            const newName = await showWormholeEditDialog(this.name, clickX, clickY);
+            debugLog.info('Dialog returned:', { newName, type: typeof newName });
+
+            if (newName !== null && newName !== this.name) {
+                debugLog.info('Updating wormhole name', {
+                    id: this.id,
+                    oldName: this.name,
+                    newName: newName
+                });
+
+                // Update local name
+                this.name = newName;
+
+                // Update the label in the DOM
+                if (this.element) {
+                    const innerContainer = this.element.querySelector('div');
+                    let label = innerContainer ? innerContainer.querySelector('div:last-child') : null;
+
+                    if (label) {
+                        const isLabel = label.textContent !== undefined && label.style.fontSize === '12px';
+                        if (isLabel) {
+                            label.textContent = newName;
+                        } else {
+                            label = null;
+                        }
+                    }
+
+                    if (!label && newName && innerContainer) {
+                        label = document.createElement('div');
+                        label.style.fontSize = '12px';
+                        label.style.fontWeight = 'bold';
+                        label.style.color = '#333';
+                        label.style.marginTop = '5px';
+                        label.style.textAlign = 'center';
+                        label.style.maxWidth = '110px';
+                        label.style.overflow = 'hidden';
+                        label.style.textOverflow = 'ellipsis';
+                        label.style.whiteSpace = 'nowrap';
+                        label.textContent = newName;
+                        innerContainer.appendChild(label);
+                    }
+                }
+
+                // Emit to server
+                if (appState.socket) {
+                    appState.socket.emit('wormhole:rename', {
+                        id: this.id,
+                        name: newName
+                    });
+                }
+            } else if (newName === null) {
+                // Delete requested
+                debugLog.info('Deleting wormhole pair', {
+                    id: this.id,
+                    partnerId: this.partnerId
+                });
+
+                // Emit to server to delete both ends
+                if (appState.socket) {
+                    appState.socket.emit('wormhole:delete', {
+                        id1: this.id,
+                        id2: this.partnerId
+                    });
+                }
+            }
+        } catch (err) {
+            if (err.message !== 'Wormhole edit cancelled') {
+                debugLog.error('Error editing wormhole name', err);
+            } else {
+                debugLog.info('Wormhole edit cancelled');
+            }
         }
     }
 

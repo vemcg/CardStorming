@@ -58,7 +58,8 @@ export class ViewportManager {
         if (coordsDisplay) {
             const x = Math.round(this.focalPoint.x);
             const y = Math.round(this.focalPoint.y);
-            coordsDisplay.textContent = `${x}, ${y}`;
+            const pct = Math.round(this.currentZoom * 100);
+            coordsDisplay.textContent = `${pct}%  ${x}, ${y}`;
         }
 
         // Debug logging (commented out for performance)

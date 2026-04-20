@@ -920,6 +920,69 @@ function escHtml(str) {
     return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function setupTooltips() {
+    const tip = document.getElementById('cs-tooltip');
+    if (!tip) return;
+
+    let showTimer = null;
+
+    function show(text, x, y) {
+        tip.textContent = text;
+        tip.style.display = 'block';
+        position(x, y);
+    }
+
+    function position(x, y) {
+        const GAP_ABOVE = 14;
+        const GAP_BELOW = 28; // extra clearance so the cursor arrow doesn't overlap
+        tip.style.left = '0';
+        tip.style.top = '0';
+        tip.style.display = 'block';
+        const tw = tip.offsetWidth;
+        const th = tip.offsetHeight;
+        let left = x - tw / 2;
+        let top  = y - th - GAP_ABOVE;
+        // Keep within viewport
+        if (left < 6) left = 6;
+        if (left + tw > window.innerWidth - 6) left = window.innerWidth - 6 - tw;
+        if (top < 6) top = y + GAP_BELOW; // flip below if near top
+        tip.style.left = left + 'px';
+        tip.style.top  = top  + 'px';
+    }
+
+    function hide() {
+        clearTimeout(showTimer);
+        tip.style.display = 'none';
+    }
+
+    document.addEventListener('mousemove', (e) => {
+        if (tip.style.display === 'block') {
+            position(e.clientX, e.clientY);
+        }
+    });
+
+    document.addEventListener('mouseover', (e) => {
+        const target = e.target.closest('[data-tooltip]');
+        if (!target) return;
+        const text = target.dataset.tooltip;
+        if (!text) return;
+        clearTimeout(showTimer);
+        showTimer = setTimeout(() => show(text, e.clientX, e.clientY), 500);
+    });
+
+    document.addEventListener('mouseout', (e) => {
+        const target = e.target.closest('[data-tooltip]');
+        if (!target) return;
+        const related = e.relatedTarget;
+        if (related && target.contains(related)) return;
+        hide();
+    });
+
+    // Hide on any click or scroll
+    document.addEventListener('mousedown', hide);
+    document.addEventListener('wheel', hide, { passive: true });
+}
+
 function setupMenuHandlers() {
     const projectNameEl = document.getElementById('project-name');
     const newMenuItem = document.getElementById('menu-new');
@@ -1154,10 +1217,16 @@ function setupMenuHandlers() {
 // ============================================================================
 
 function zoomToFit() {
-    const cards = Array.from(appState.cards.values());
-    const CARD_W = 150, CARD_H = 120, PADDING = 100;
+    const MAX_COORD = 500000;
+    const cards = Array.from(appState.cards.values()).filter(
+        c => isFinite(c.x) && isFinite(c.y) && Math.abs(c.x) <= MAX_COORD && Math.abs(c.y) <= MAX_COORD
+    );
+    const wormholes = Array.from(appState.wormholes.values()).filter(
+        w => isFinite(w.x) && isFinite(w.y) && Math.abs(w.x) <= MAX_COORD && Math.abs(w.y) <= MAX_COORD
+    );
+    const CARD_W = 150, CARD_H = 120, WORM_W = 160, WORM_H = 100, PADDING = 100;
 
-    if (cards.length === 0) {
+    if (cards.length === 0 && wormholes.length === 0) {
         viewportManager.currentZoom = 1.0;
         viewportManager.panTo(0, 0);
         viewportManager.saveManualZoom();
@@ -1170,6 +1239,12 @@ function zoomToFit() {
         minY = Math.min(minY, card.y - PADDING);
         maxX = Math.max(maxX, card.x + CARD_W + PADDING);
         maxY = Math.max(maxY, card.y + CARD_H + PADDING);
+    }
+    for (const w of wormholes) {
+        minX = Math.min(minX, w.x - PADDING);
+        minY = Math.min(minY, w.y - PADDING);
+        maxX = Math.max(maxX, w.x + WORM_W + PADDING);
+        maxY = Math.max(maxY, w.y + WORM_H + PADDING);
     }
 
     const boundsW = maxX - minX;
@@ -1184,7 +1259,8 @@ function zoomToFit() {
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
 
-    viewportManager.currentZoom = Math.max(viewportManager.MIN_ZOOM, targetZoom);
+    // Never zoom out so far that cards become invisible (min 5%)
+    viewportManager.currentZoom = Math.max(0.05, targetZoom);
     viewportManager.panTo(centerX, centerY);
     viewportManager.saveManualZoom();
 }
@@ -2088,6 +2164,7 @@ function renderPaletteCards() {
         cardEl.draggable = true;
         cardEl.dataset.cardType = paletteCard.type;
         cardEl.dataset.cardColor = paletteCard.color;
+        cardEl.dataset.tooltip = `${paletteCard.type} — drag onto the workspace to place a new card of this type`;
         cardEl.style.backgroundColor = paletteCard.color;
 
         // Calculate text color based on background brightness
@@ -3072,6 +3149,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     appState.socket = socket;
 
     // Setup all event listeners first (before connecting)
+    setupTooltips();
     setupMenuHandlers();
     setupZoomControls();
     setupToolbarButtons();

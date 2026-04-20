@@ -10,8 +10,10 @@
     <div class="heading">
         <h1>CardStorming</h1>
         <div class="project-name-section">
-            <input type="text" id="project-name" class="project-name-input" value="Unnamed Project" spellcheck="false">
-            <button id="share-btn" class="share-button" title="Share this project">📤 Share</button>
+            <input type="text" id="project-name" class="project-name-input" value="Unnamed Project" spellcheck="false"
+                data-tooltip="Click to rename this project">
+            <button id="share-btn" class="share-button"
+                data-tooltip="Share this project — copy a link or a plain-text summary to send to collaborators">📤 Share</button>
         </div>
         <p class="welcome-text" id="welcome-text">Welcome to your collaborative workspace</p>
     </div>
@@ -19,56 +21,65 @@
     <div class="menu-bar">
         <div class="menu-left">
             <div class="menu-item">
-                <button class="menu-button">File</button>
+                <button class="menu-button" data-tooltip="File — create, open, and manage projects">File</button>
                 <div class="dropdown-content">
-                    <a href="#" id="menu-new">New</a>
+                    <a href="#" id="menu-new" data-tooltip="Create a new empty project">New</a>
                     <div class="submenu-container">
-                        <a href="#" id="menu-open" class="has-submenu">Open ›</a>
+                        <a href="#" id="menu-open" class="has-submenu" data-tooltip="Open an existing project">Open ›</a>
                         <div class="submenu-content" id="open-submenu">
                             <!-- Projects will be dynamically inserted here -->
                         </div>
                     </div>
                     <div class="submenu-container">
-                        <a href="#" id="menu-delete" class="has-submenu">Delete ›</a>
+                        <a href="#" id="menu-delete" class="has-submenu" data-tooltip="Delete cards, palette types, or the whole project">Delete ›</a>
                         <div class="submenu-content">
-                            <a href="#" id="menu-delete-cards">All Cards</a>
-                            <a href="#" id="menu-delete-palette">Palette</a>
-                            <a href="#" id="menu-delete-project">Project</a>
+                            <a href="#" id="menu-delete-cards" data-tooltip="Remove all cards from the workspace (card types in the palette are kept)">All Cards</a>
+                            <a href="#" id="menu-delete-palette" data-tooltip="Remove all card types from the palette (cards on the workspace are kept)">Palette</a>
+                            <a href="#" id="menu-delete-project" data-tooltip="Permanently delete this project and everything in it">Project</a>
                         </div>
                     </div>
-                    <a href="#" id="menu-export-report">Export Report</a>
-                    <a href="#" id="menu-leave-project">Leave Project</a>
-                    <a href="#" id="menu-close">Close</a>
-                    <a href="#" id="menu-exit">Exit</a>
+                    <a href="#" id="menu-export-report" data-tooltip="Generate a readable document from all cards, organized by constellation">Export Report</a>
+                    <a href="#" id="menu-leave-project" data-tooltip="Leave this project — it stays available for other collaborators">Leave Project</a>
+                    <a href="#" id="menu-close" data-tooltip="Close the current project and return to the start screen">Close</a>
+                    <a href="#" id="menu-exit" data-tooltip="Exit CardStorming">Exit</a>
                 </div>
             </div>
             <div class="menu-item">
-                <button class="menu-button">Help</button>
+                <button class="menu-button" data-tooltip="Help — debug log and app info">Help</button>
                 <div class="dropdown-content">
-                    <a href="#" id="menu-show-log">Show Log</a>
-                    <a href="#" id="menu-about">About</a>
+                    <a href="#" id="menu-show-log" data-tooltip="Open the debug log to inspect events and troubleshoot issues">Show Log</a>
+                    <a href="#" id="menu-about" data-tooltip="About CardStorming — version and credits">About</a>
                 </div>
             </div>
         </div>
         <div class="zoom-controls">
-            <button id="zoom-search-btn" class="zoom-button zoom-icon-button" title="Zoom to Fit">
+            <button id="zoom-search-btn" class="zoom-button zoom-icon-button"
+                data-tooltip="Zoom to Fit — scale the view so all cards are visible at once">
                 <img src="/images/zoom-in-search.svg" alt="Zoom to Fit" class="zoom-icon">
             </button>
-            <button id="zoom-out-btn" class="zoom-button" title="Zoom Out">−</button>
-            <button id="zoom-in-btn" class="zoom-button" title="Zoom In">+</button>
-            <button id="center-btn" class="zoom-button" title="Center View">⊙</button>
+            <button id="zoom-out-btn" class="zoom-button"
+                data-tooltip="Zoom Out (or scroll wheel down)">−</button>
+            <button id="zoom-in-btn" class="zoom-button"
+                data-tooltip="Zoom In (or scroll wheel up)">+</button>
+            <button id="center-btn" class="zoom-button"
+                data-tooltip="Center View — jump to the last teleported card, or return to the workspace origin">⊙</button>
             <div class="scan-controls">
-                <button id="scan-start-btn" class="zoom-button scan-start-btn" title="Scan Workspace (top-left to bottom-right)" disabled>
+                <button id="scan-start-btn" class="zoom-button scan-start-btn"
+                    data-tooltip="Scan Workspace — step through all cards and constellations in reading order (top to bottom, left to right)"
+                    disabled>
                     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <line x1="3" y1="3" x2="15" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                         <polyline points="9,15 15,15 15,9" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
                     </svg>
                 </button>
-                <button id="scan-prev-btn" class="zoom-button" title="Previous" disabled>‹</button>
+                <button id="scan-prev-btn" class="zoom-button"
+                    data-tooltip="Previous card or group" disabled>‹</button>
                 <span id="scan-counter" class="scan-counter"></span>
-                <button id="scan-next-btn" class="zoom-button" title="Next" disabled>›</button>
+                <button id="scan-next-btn" class="zoom-button"
+                    data-tooltip="Next card or group" disabled>›</button>
             </div>
-            <div id="viewport-coordinates" class="viewport-coordinates">0, 0</div>
+            <div id="viewport-coordinates" class="viewport-coordinates"
+                data-tooltip="Current workspace coordinates at the centre of the viewport">0, 0</div>
         </div>
     </div>
 
@@ -77,10 +88,12 @@
             <div class="viewport-content"></div>
         </div>
         <div class="palette">
-            <div id="wormhole-palette-item" class="palette-wormhole" draggable="true" title="Drag to create wormhole">
+            <div id="wormhole-palette-item" class="palette-wormhole" draggable="true"
+                data-tooltip="Wormhole — drag onto the workspace to place a linked portal pair. Drop a card on one end to teleport it to the other. Click a placed wormhole to jump the view to its partner. Double-click to rename.">
                 <img src="/images/wormhole-galaxy.svg" alt="Wormhole" class="wormhole-palette-icon">
             </div>
-            <button id="add-card-btn" class="add-card-button">
+            <button id="add-card-btn" class="add-card-button"
+                data-tooltip="New Card Type — define a card category with a custom name and background color, then drag copies onto the workspace">
                 <span class="plus-sign">+</span>
                 <img src="/images/stacked-cards.svg" alt="Cards" class="cards-icon">
             </button>
@@ -116,9 +129,9 @@
                 <div class="edit-card-body" id="edit-card-body" contenteditable="true" data-placeholder="Body text..."></div>
             </div>
             <div class="edit-button-row">
-                <button id="edit-delete" class="edit-delete-btn">&#128465;</button>
-                <button id="edit-close" class="edit-close-btn">&times;</button>
-                <button id="edit-save" class="edit-save-btn">&#10003;</button>
+                <button id="edit-delete" class="edit-delete-btn" data-tooltip="Delete this card permanently">&#128465;</button>
+                <button id="edit-close" class="edit-close-btn" data-tooltip="Discard changes and close">&#10005;</button>
+                <button id="edit-save" class="edit-save-btn" data-tooltip="Save changes">&#10003;</button>
             </div>
         </div>
     </div>
@@ -192,6 +205,8 @@
             </div>
         </div>
     </div>
+
+    <div id="cs-tooltip"></div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script type="module" src="/js/app.js"></script>
