@@ -813,6 +813,54 @@ app.get('/api/projects', (req, res) => {
     }
 });
 
+// Export a project as a self-contained JSON file
+app.get('/api/project/:projectId/export', (req, res) => {
+    const { projectId } = req.params;
+    const project = getProject(projectId);
+    if (!project) return res.status(404).json({ success: false, error: 'Project not found' });
+
+    const serialized = serializeProject(project);
+    const exportData = {
+        exportVersion: 1,
+        exportedAt: new Date().toISOString(),
+        projectName: project.projectName || 'Unnamed Project',
+        cards: serialized.cards || [],
+        wormholes: serialized.wormholes || [],
+        paletteCards: serialized.paletteCards || []
+    };
+
+    const filename = (project.projectName || 'project').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '.cardstorming.json';
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/json');
+    res.json(exportData);
+});
+
+// Import a project from an exported JSON file
+app.post('/api/project/import', express.json({ limit: '10mb' }), (req, res) => {
+    try {
+        const { exportData, projectName } = req.body;
+        if (!exportData) return res.status(400).json({ success: false, error: 'No export data provided' });
+
+        const newId = crypto.randomBytes(8).toString('hex') + Date.now().toString(36);
+        const newProject = {
+            version: 2,
+            projectName: projectName || exportData.projectName || 'Imported Project',
+            cards: exportData.cards || [],
+            wormholes: exportData.wormholes || [],
+            paletteCards: exportData.paletteCards || [],
+            users: new Map()
+        };
+
+        projects.set(newId, newProject);
+        saveProjectToDisk(newId, true);
+
+        res.json({ success: true, projectId: newId, projectName: newProject.projectName });
+    } catch (err) {
+        console.error('Error importing project:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // WebSocket connection handling
 io.on('connection', (socket) => {
     let projectId = socket.handshake.query.projectId;

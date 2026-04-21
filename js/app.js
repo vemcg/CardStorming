@@ -1060,6 +1060,68 @@ function setupMenuHandlers() {
         });
     }
 
+    const exportProjectMenuItem = document.getElementById('menu-export-project');
+    if (exportProjectMenuItem) {
+        exportProjectMenuItem.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (!isProjectOpen || !currentProjectId) { alert('No project is open.'); return; }
+            try {
+                const res = await fetch(`/api/project/${currentProjectId}/export`);
+                if (!res.ok) throw new Error(await res.text());
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const disposition = res.headers.get('Content-Disposition') || '';
+                const match = disposition.match(/filename="([^"]+)"/);
+                const filename = match ? match[1] : 'project.cardstorming.json';
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                alert('Export failed: ' + err.message);
+            }
+        });
+    }
+
+    const importProjectMenuItem = document.getElementById('menu-import-project');
+    if (importProjectMenuItem) {
+        importProjectMenuItem.addEventListener('click', (e) => {
+            e.preventDefault();
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json,.cardstorming.json';
+            input.addEventListener('change', async () => {
+                const file = input.files[0];
+                if (!file) return;
+                try {
+                    const text = await file.text();
+                    const exportData = JSON.parse(text);
+                    if (!exportData.exportVersion) {
+                        alert('This does not appear to be a CardStorming export file.');
+                        return;
+                    }
+                    const suggested = exportData.projectName || 'Imported Project';
+                    const projectName = prompt('Import as:', suggested);
+                    if (projectName === null) return; // cancelled
+                    const res = await fetch('/api/project/import', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ exportData, projectName: projectName.trim() || suggested })
+                    });
+                    const data = await res.json();
+                    if (!data.success) throw new Error(data.error);
+                    if (confirm(`"${data.projectName}" imported successfully. Open it now?`)) {
+                        openProject(data.projectId);
+                    }
+                } catch (err) {
+                    alert('Import failed: ' + err.message);
+                }
+            });
+            input.click();
+        });
+    }
+
     const exportReportMenuItem = document.getElementById('menu-export-report');
     if (exportReportMenuItem) {
         exportReportMenuItem.addEventListener('click', (e) => {
