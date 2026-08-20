@@ -9,32 +9,56 @@ export class Auth {
         this.currentIdentity = null; // { name, initials }
         this.isReadOnly = true;
         this.COOKIE_NAME = 'cardstorming_user';
+        this.STORAGE_KEY = 'cardstorming_user_data';
     }
 
     /**
-     * Initialize auth - check for existing cookie
+     * Initialize auth — check localStorage first, then cookie + server
      */
     async init() {
-        this.userHash = this.getCookie(this.COOKIE_NAME);
+        // Try localStorage first (works offline, survives server restarts)
+        const stored = localStorage.getItem(this.STORAGE_KEY);
+        if (stored) {
+            try {
+                const parsed = JSON.parse(stored);
+                if (parsed.userHash && parsed.userData) {
+                    this.userHash = parsed.userHash;
+                    this.userData = parsed.userData;
+                    // Restore last-used identity if saved
+                    if (parsed.currentIdentity) {
+                        this.currentIdentity = parsed.currentIdentity;
+                        this.isReadOnly = false;
+                    }
+                    debugLog.info('User loaded from localStorage', {
+                        userHash: this.userHash,
+                        defaultName: this.userData.defaultName
+                    });
+                    return true;
+                }
+            } catch (err) {
+                localStorage.removeItem(this.STORAGE_KEY);
+            }
+        }
 
+        // Fall back to cookie + server fetch
+        this.userHash = this.getCookie(this.COOKIE_NAME);
         if (this.userHash) {
             try {
-                // Load user profile from server
                 const response = await fetch(`/api/user/${this.userHash}`);
                 if (response.ok) {
                     this.userData = await response.json();
-                    debugLog.info('User loaded from cookie', {
+                    this._saveToStorage();
+                    debugLog.info('User loaded from server', {
                         userHash: this.userHash,
                         defaultName: this.userData.defaultName
                     });
                     return true;
                 } else {
-                    // Cookie is invalid, clear it
                     this.clearCookie(this.COOKIE_NAME);
                     this.userHash = null;
                 }
             } catch (err) {
-                console.error('Error loading user:', err);
+                // Server unreachable — clear stale cookie but don't block
                 this.clearCookie(this.COOKIE_NAME);
                 this.userHash = null;
             }
@@ -42,6 +66,18 @@ export class Auth {
 
         debugLog.info('No valid user session found');
         return false;
+    }
+
+    _saveToStorage() {
+        try {
+            localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
+                userHash: this.userHash,
+                userData: this.userData,
+                currentIdentity: this.currentIdentity
+            }));
+        } catch (err) {
+            // localStorage might be full or unavailable (private browsing edge case)
+        }
     }
 
     /**
@@ -78,14 +114,10 @@ export class Auth {
             this.userHash = result.userHash;
             this.userData = result.user;
 
-            // Set cookie
             this.setCookie(this.COOKIE_NAME, this.userHash, 365);
+            this._saveToStorage();
 
-            debugLog.info('User registered', {
-                userHash: this.userHash,
-                isNew: result.isNew
-            });
-
+            debugLog.info('User registered', { userHash: this.userHash, isNew: result.isNew });
             return result;
         } catch (err) {
             console.error('Registration error:', err);
@@ -94,47 +126,35 @@ export class Auth {
     }
 
     /**
-     * Get all available identities for current user
+     * Get all available identities for current user — built from in-memory userData
      */
-    async getIdentities() {
-        if (!this.isAuthenticated()) {
-            return [];
-        }
+    getIdentities() {
+        if (!this.isAuthenticated()) return [];
 
-        try {
-            const response = await fetch(`/api/user/${this.userHash}/identities`);
-            if (!response.ok) {
-                throw new Error('Failed to load identities');
+        const identities = [{
+            name: this.userData.defaultName,
+            initials: this.userData.defaultInitials,
+            isDefault: true
+        }];
+
+        const seen = new Set([`${this.userData.defaultName}|${this.userData.defaultInitials}`]);
+        for (const identity of Object.values(this.userData.identities || {})) {
+            const key = `${identity.name}|${identity.initials}`;
+            if (!seen.has(key)) {
+                identities.push({ name: identity.name, initials: identity.initials, isDefault: false });
+                seen.add(key);
             }
-
-            const result = await response.json();
-            return result.identities;
-        } catch (err) {
-            console.error('Error loading identities:', err);
-            return [];
         }
+
+        return identities;
     }
 
     /**
-     * Get user's projects
+     * Get user's projects (from in-memory userData)
      */
-    async getProjects() {
-        if (!this.isAuthenticated()) {
-            return [];
-        }
-
-        try {
-            const response = await fetch(`/api/user/${this.userHash}/projects`);
-            if (!response.ok) {
-                throw new Error('Failed to load projects');
-            }
-
-            const result = await response.json();
-            return result.projects;
-        } catch (err) {
-            console.error('Error loading projects:', err);
-            return [];
-        }
+    getProjects() {
+        if (!this.isAuthenticated()) return [];
+        return this.userData.projects || [];
     }
 
     /**
@@ -145,17 +165,10 @@ export class Auth {
             const response = await fetch(`/api/project/${projectHash}/check-identity`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name,
-                    initials,
-                    userHash: this.userHash
-                })
+                body: JSON.stringify({ name, initials, userHash: this.userHash })
             });
 
-            if (!response.ok) {
-                throw new Error('Failed to check identity');
-            }
-
+            if (!response.ok) throw new Error('Failed to check identity');
             return await response.json();
         } catch (err) {
             console.error('Error checking identity:', err);
@@ -167,19 +180,13 @@ export class Auth {
      * Join project with specific identity
      */
     async joinProject(projectHash, name, initials) {
-        if (!this.isAuthenticated()) {
-            throw new Error('User not authenticated');
-        }
+        if (!this.isAuthenticated()) throw new Error('User not authenticated');
 
         try {
             const response = await fetch(`/api/project/${projectHash}/users`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userHash: this.userHash,
-                    name,
-                    initials
-                })
+                body: JSON.stringify({ userHash: this.userHash, name, initials })
             });
 
             if (!response.ok) {
@@ -193,10 +200,18 @@ export class Auth {
                 this.currentIdentity = { name, initials };
                 this.isReadOnly = false;
 
-                debugLog.info('Joined project', {
-                    projectHash,
-                    identity: this.currentIdentity
-                });
+                // Update local userData with the new project identity
+                if (this.userData) {
+                    if (!this.userData.projects) this.userData.projects = [];
+                    if (!this.userData.projects.includes(projectHash)) {
+                        this.userData.projects.push(projectHash);
+                    }
+                    if (!this.userData.identities) this.userData.identities = {};
+                    this.userData.identities[projectHash] = { name, initials };
+                    this._saveToStorage();
+                }
+
+                debugLog.info('Joined project', { projectHash, identity: this.currentIdentity });
             }
 
             return result;
@@ -207,21 +222,33 @@ export class Auth {
     }
 
     /**
-     * Get user's identities in a specific project
+     * Get user's identities in a specific project — checks local userData first
      */
     async getProjectIdentities(projectHash) {
-        if (!this.isAuthenticated()) {
-            return [];
+        if (!this.isAuthenticated()) return [];
+
+        // Check local userData first
+        const localIdentity = this.userData.identities && this.userData.identities[projectHash];
+        if (localIdentity) {
+            return [{ name: localIdentity.name, initials: localIdentity.initials }];
         }
 
+        // Fall back to server (handles migration cases)
         try {
             const response = await fetch(`/api/project/${projectHash}/user/${this.userHash}/identities`);
-            if (!response.ok) {
-                throw new Error('Failed to load project identities');
+            if (!response.ok) return [];
+            const result = await response.json();
+
+            // Cache any found identities locally
+            if (result.identities && result.identities.length > 0) {
+                if (!this.userData.identities) this.userData.identities = {};
+                result.identities.forEach(id => {
+                    this.userData.identities[projectHash] = { name: id.name, initials: id.initials };
+                });
+                this._saveToStorage();
             }
 
-            const result = await response.json();
-            return result.identities;
+            return result.identities || [];
         } catch (err) {
             console.error('Error loading project identities:', err);
             return [];
@@ -234,7 +261,7 @@ export class Auth {
     setCurrentIdentity(name, initials) {
         this.currentIdentity = { name, initials };
         this.isReadOnly = false;
-
+        this._saveToStorage();
         debugLog.info('Set current identity', { identity: this.currentIdentity });
     }
 
@@ -243,6 +270,7 @@ export class Auth {
      */
     setReadOnly(readOnly) {
         this.isReadOnly = readOnly;
+        if (readOnly) this.currentIdentity = null;
         debugLog.info('Read-only mode', { readOnly });
     }
 
@@ -258,11 +286,11 @@ export class Auth {
      */
     logout() {
         this.clearCookie(this.COOKIE_NAME);
+        localStorage.removeItem(this.STORAGE_KEY);
         this.userHash = null;
         this.userData = null;
         this.currentIdentity = null;
         this.isReadOnly = true;
-
         debugLog.info('User logged out');
     }
 
@@ -270,9 +298,6 @@ export class Auth {
     // Cookie Management
     // ========================================================================
 
-    /**
-     * Set a cookie
-     */
     setCookie(name, value, days) {
         let expires = '';
         if (days) {
@@ -283,9 +308,6 @@ export class Auth {
         document.cookie = name + '=' + (value || '') + expires + '; path=/; SameSite=Strict';
     }
 
-    /**
-     * Get a cookie
-     */
     getCookie(name) {
         const nameEQ = name + '=';
         const ca = document.cookie.split(';');
@@ -297,9 +319,6 @@ export class Auth {
         return null;
     }
 
-    /**
-     * Clear a cookie
-     */
     clearCookie(name) {
         document.cookie = name + '=; Max-Age=-99999999; path=/';
     }

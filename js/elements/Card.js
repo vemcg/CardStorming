@@ -66,18 +66,40 @@ export class Card extends DraggableElement {
         // Calculate text color based on background brightness
         const textColor = this.getTextColor();
 
-        // Header text
+        // Top row: header text + initials side by side via flexbox
+        const topRow = document.createElement('div');
+        topRow.style.display = 'flex';
+        topRow.style.alignItems = 'flex-start';
+        topRow.style.gap = '4px';
+        topRow.style.marginBottom = '4px';
+        topRow.style.width = '100%';
+
         const headerDiv = document.createElement('div');
         headerDiv.style.fontSize = '11px';
         headerDiv.style.fontWeight = 'bold';
         headerDiv.style.lineHeight = '1.2';
-        headerDiv.style.marginBottom = '4px';
         headerDiv.style.overflow = 'hidden';
         headerDiv.style.textOverflow = 'ellipsis';
         headerDiv.style.whiteSpace = 'nowrap';
         headerDiv.style.color = textColor;
+        headerDiv.style.flex = '1';
+        headerDiv.style.minWidth = '0'; // required for ellipsis inside flex
         headerDiv.textContent = this.header;
-        card.appendChild(headerDiv);
+        topRow.appendChild(headerDiv);
+
+        if (this.authorInitials) {
+            const initialsDiv = document.createElement('div');
+            initialsDiv.className = 'card-initials';
+            initialsDiv.style.fontSize = '11px';
+            initialsDiv.style.fontWeight = 'bold';
+            initialsDiv.style.color = textColor;
+            initialsDiv.style.flexShrink = '0';
+            initialsDiv.style.lineHeight = '1.2';
+            initialsDiv.textContent = this.authorInitials;
+            topRow.appendChild(initialsDiv);
+        }
+
+        card.appendChild(topRow);
 
         // Body text
         const bodyDiv = document.createElement('div');
@@ -88,21 +110,6 @@ export class Card extends DraggableElement {
         bodyDiv.style.whiteSpace = 'pre-wrap';
         bodyDiv.textContent = this.body;
         card.appendChild(bodyDiv);
-
-        // Author initials in top right
-        if (this.authorInitials) {
-            const initialsDiv = document.createElement('div');
-            initialsDiv.className = 'card-initials';
-            initialsDiv.style.position = 'absolute';
-            initialsDiv.style.top = '8px';
-            initialsDiv.style.right = '8px';
-            initialsDiv.style.fontSize = '11px';
-            initialsDiv.style.fontWeight = 'bold';
-            initialsDiv.style.color = textColor;
-            initialsDiv.style.zIndex = '2';
-            initialsDiv.textContent = this.authorInitials;
-            card.appendChild(initialsDiv);
-        }
 
         this.element = card;
         this.updatePosition(viewportManager);

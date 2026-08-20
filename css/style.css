@@ -836,7 +836,7 @@ body {
 
 /* Edit Card Visual Styling */
 .edit-card-container {
-    width: 150px;
+    width: auto;
     padding: 0;
     position: relative;
     background: transparent;
@@ -848,7 +848,7 @@ body {
     display: flex;
     justify-content: space-between;
     margin-top: 5px;
-    width: 150px;
+    width: 100%;
 }
 
 .edit-close-btn {
@@ -916,10 +916,10 @@ body {
 
 .edit-card-visual {
     position: relative;
-    width: 150px;
-    min-height: 120px;
+    width: auto;
+    min-height: unset;
     height: auto;
-    max-height: 400px;
+    max-height: unset;
     padding: 8px 8px 4px 8px;
     border: 1px solid #999;
     border-radius: 3px;
@@ -941,8 +941,6 @@ body {
     line-height: 1.2;
     margin-bottom: 4px;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .edit-card-body {

@@ -534,7 +534,7 @@ async function requireWriteAccess() {
         }
 
         // Select identity
-        const identities = await auth.getIdentities();
+        const identities = auth.getIdentities();
         const identity = await showIdentityDialog(
             identities,
             'Select Identity',
@@ -625,7 +625,7 @@ async function openProjectWithIdentitySelection(projectId) {
             }
         } else {
             // Not a member yet - let them register with a new identity for this project
-            const identities = await auth.getIdentities();
+            const identities = auth.getIdentities();
             const identity = await showIdentityDialog(
                 identities,
                 'Register for Project',
@@ -672,7 +672,7 @@ async function populateOpenSubmenu() {
 
         if (auth.isAuthenticated()) {
             // Get user's projects from server
-            userProjects = await auth.getProjects();
+            userProjects = auth.getProjects();
         }
 
         // Get list of all projects with user counts and names from server
@@ -1016,7 +1016,7 @@ function setupMenuHandlers() {
                 }
 
                 // Show identity selection
-                const identities = await auth.getIdentities();
+                const identities = auth.getIdentities();
                 const identity = await showIdentityDialog(
                     identities,
                     'Select Identity for New Project',
@@ -1821,13 +1821,6 @@ function setupEditModal() {
     const editClose = document.getElementById('edit-close');
     const editDelete = document.getElementById('edit-delete');
 
-    // Move edit modal into viewport-content so it inherits transforms
-    const viewportContent = document.querySelector('.viewport-content');
-    if (viewportContent && editModal && !viewportContent.contains(editModal)) {
-        viewportContent.appendChild(editModal);
-        debugLog.info('Moved edit modal into viewport-content');
-    }
-
     // Prevent Enter key in header from creating newline - move to body instead
     if (editCardHeader) {
         editCardHeader.addEventListener('keydown', (e) => {
@@ -1864,57 +1857,61 @@ function setupEditModal() {
             editCardBody.style.color = textColor;
         }
 
-        // Position and size modal exactly to match the card
+        // Position modal over the card at 1.5x its rendered screen size.
+        // #edit-modal is a full-screen transparent overlay — we position the
+        // inner .modal-content container within it.
+        const container = editModal.querySelector('.modal-content');
+        const SCALE = 1.5;
+        const MARGIN = 8;
+        const BTN_ROW = 34; // height of button row + margin
+        let modalW, visualH, left, top;
+
         if (card.element) {
-            // Convert workspace coordinates to CSS coordinates (same as cards use)
-            const cssPos = CoordinateSystem.workspaceToCSS(card.x, card.y, viewportManager.viewport);
+            const rect = card.element.getBoundingClientRect();
+            // Derive actual CSS scale from rendered width (card base width is 150px)
+            const cssScale = rect.width / 150;
+            modalW = Math.max(220, rect.width * SCALE);
+            visualH = Math.max(150, rect.height * SCALE);
 
-            // Position modal in CSS coordinates (so it follows viewport transforms)
-            editModal.style.display = 'block';
-            editModal.style.position = 'absolute';
-            editModal.style.left = cssPos.x + 'px';
-            editModal.style.top = cssPos.y + 'px';
-            editModal.style.transform = 'none';
+            // Center over the card
+            const totalH = visualH + BTN_ROW;
+            left = rect.left + rect.width / 2 - modalW / 2;
+            top = rect.top + rect.height / 2 - totalH / 2;
 
-            // Get current zoom for sizing
-            const zoom = viewportManager.zoom;
-
-            // Match the card's natural size scaled by zoom
-            const cardWidth = 150;
-            const cardHeight = 120;
-
-            editCardVisual.style.width = cardWidth + 'px';
-            editCardVisual.style.height = cardHeight + 'px';
-            editCardVisual.style.minHeight = 'unset';
-            editCardVisual.style.maxHeight = 'unset';
-
-            // Font sizes already match the card's base sizes (no zoom scaling needed)
-            editCardHeader.style.fontSize = '11px';
-            editCardBody.style.fontSize = '9px';
-
-            // Scale spacing
-            editCardHeader.style.marginBottom = '4px';
-        } else if (mouseEvent) {
-            // Fallback to mouse position if card element not available
-            const modalWidth = 150;
-            const modalHeight = 100;
-
-            let left = mouseEvent.clientX - modalWidth / 2;
-            let top = mouseEvent.clientY - modalHeight / 2;
-
-            editModal.style.display = 'block';
-            editModal.style.position = 'fixed';
-            editModal.style.left = left + 'px';
-            editModal.style.top = top + 'px';
-            editModal.style.transform = 'none';
+            // Scale fonts to match 1.5x the card's rendered text size
+            editCardHeader.style.fontSize = Math.max(16, Math.round(11 * cssScale * SCALE)) + 'px';
+            editCardBody.style.fontSize = Math.max(13, Math.round(9 * cssScale * SCALE)) + 'px';
+            editCardHeader.style.marginBottom = Math.max(6, Math.round(4 * cssScale * SCALE)) + 'px';
         } else {
-            // Fallback to centered if no mouse event
-            editModal.style.display = 'flex';
-            editModal.style.position = 'fixed';
-            editModal.style.left = '50%';
-            editModal.style.top = '50%';
-            editModal.style.transform = 'translate(-50%, -50%)';
+            // Fallback: center in viewport
+            modalW = 240;
+            visualH = 180;
+            left = (window.innerWidth - modalW) / 2;
+            top = (window.innerHeight - (visualH + BTN_ROW)) / 2;
+            editCardHeader.style.fontSize = '16px';
+            editCardBody.style.fontSize = '13px';
+            editCardHeader.style.marginBottom = '6px';
         }
+
+        // Clamp to viewport
+        const totalH = visualH + BTN_ROW;
+        left = Math.max(MARGIN, Math.min(left, window.innerWidth - modalW - MARGIN));
+        top = Math.max(MARGIN, Math.min(top, window.innerHeight - totalH - MARGIN));
+
+        // Size the visual area; let the container wrap it + button row
+        editCardVisual.style.width = modalW + 'px';
+        editCardVisual.style.height = visualH + 'px';
+        editCardVisual.style.minHeight = 'unset';
+        editCardVisual.style.maxHeight = 'unset';
+
+        // Position the inner container, not the overlay
+        container.style.position = 'absolute';
+        container.style.left = left + 'px';
+        container.style.top = top + 'px';
+        container.style.margin = '0';
+        container.style.width = 'auto';
+
+        editModal.style.display = 'block';
 
         editCardHeader.focus();
     });

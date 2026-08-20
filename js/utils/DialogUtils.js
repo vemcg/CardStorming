@@ -18,17 +18,13 @@ export function showRegistrationDialog(message = 'To continue, please register:'
         const okBtn = document.getElementById('register-ok');
         const cancelBtn = document.getElementById('register-cancel');
 
-        // Set message
         messageEl.textContent = message;
-
-        // Clear previous inputs
         emailInput.value = '';
         nameInput.value = '';
         initialsInput.value = '';
         errorEl.style.display = 'none';
         errorEl.textContent = '';
 
-        // Stop any ongoing drag operations that might have auto-zoom running
         if (window.appState && window.appState.currentDrag) {
             window.appState.currentDrag.isDragging = false;
             if (window.appState.currentDrag.zoomAnimationFrame) {
@@ -37,24 +33,19 @@ export function showRegistrationDialog(message = 'To continue, please register:'
             }
             window.appState.currentDrag = null;
         }
-
-        // Stop wormhole zoom animation if running
         if (window.wormholeZoomAnimationFrame) {
             cancelAnimationFrame(window.wormholeZoomAnimationFrame);
             window.wormholeZoomAnimationFrame = null;
         }
 
-        // Show modal
         modal.style.display = 'block';
         emailInput.focus();
 
-        // Handle OK
         const handleOk = () => {
             const email = emailInput.value.trim();
             const name = nameInput.value.trim();
             const initials = initialsInput.value.trim().toUpperCase();
 
-            // Validate
             if (!email || !name || !initials) {
                 errorEl.textContent = 'All fields are required';
                 errorEl.style.display = 'block';
@@ -77,30 +68,21 @@ export function showRegistrationDialog(message = 'To continue, please register:'
             resolve({ email, name, initials });
         };
 
-        // Handle cancel
         const handleCancel = () => {
             cleanup();
             reject(new Error('Registration cancelled'));
         };
 
-        // Cleanup function
         const cleanup = () => {
             modal.style.display = 'none';
             okBtn.removeEventListener('click', handleOk);
             cancelBtn.removeEventListener('click', handleCancel);
         };
 
-        // Add event listeners
         okBtn.addEventListener('click', handleOk);
         cancelBtn.addEventListener('click', handleCancel);
 
-        // Enter key submits
-        const handleKeyPress = (e) => {
-            if (e.key === 'Enter') {
-                handleOk();
-            }
-        };
-
+        const handleKeyPress = (e) => { if (e.key === 'Enter') handleOk(); };
         emailInput.addEventListener('keypress', handleKeyPress);
         nameInput.addEventListener('keypress', handleKeyPress);
         initialsInput.addEventListener('keypress', handleKeyPress);
