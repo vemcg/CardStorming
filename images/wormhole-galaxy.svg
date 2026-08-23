@@ -1,52 +1,45 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 125">
-  <defs>
-    <radialGradient id="wormhole1" cx="35%" cy="50%" r="40%">
-      <stop offset="0%" style="stop-color:#FFD700;stop-opacity:1" />
-      <stop offset="30%" style="stop-color:#00CED1;stop-opacity:0.8" />
-      <stop offset="60%" style="stop-color:#8A2BE2;stop-opacity:0.6" />
-      <stop offset="100%" style="stop-color:#000033;stop-opacity:0" />
-    </radialGradient>
-    <radialGradient id="wormhole2" cx="65%" cy="50%" r="40%">
-      <stop offset="0%" style="stop-color:#FFD700;stop-opacity:1" />
-      <stop offset="30%" style="stop-color:#00CED1;stop-opacity:0.8" />
-      <stop offset="60%" style="stop-color:#FF69B4;stop-opacity:0.6" />
-      <stop offset="100%" style="stop-color:#000033;stop-opacity:0" />
-    </radialGradient>
-    <linearGradient id="space" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0a0a20" />
-      <stop offset="50%" style="stop-color:#1a1a40" />
-      <stop offset="100%" style="stop-color:#0a0a20" />
-    </linearGradient>
-  </defs>
+  <rect width="200" height="125" fill="#ffffff"/>
 
-  <!-- Background -->
-  <rect width="200" height="125" fill="url(#space)" rx="8"/>
+  <!-- Left vortex -->
+  <circle cx="45" cy="62" r="30" fill="none" stroke="#111" stroke-width="2.5"/>
+  <g fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round">
+    <path d="M73,62 Q56,73 45,66"/>
+    <path d="M65,82 Q45,77 42,65"/>
+    <path d="M45,90 Q34,73 41,62"/>
+    <path d="M25,82 Q30,62 42,59"/>
+    <path d="M17,62 Q34,51 45,58"/>
+    <path d="M25,42 Q45,47 48,59"/>
+    <path d="M45,34 Q56,51 49,62"/>
+    <path d="M65,42 Q60,62 48,65"/>
+  </g>
+  <circle cx="45" cy="62" r="3" fill="#111"/>
 
-  <!-- Stars -->
-  <circle cx="20" cy="20" r="1" fill="white" opacity="0.8"/>
-  <circle cx="45" cy="35" r="0.5" fill="white" opacity="0.6"/>
-  <circle cx="80" cy="15" r="1" fill="white" opacity="0.7"/>
-  <circle cx="120" cy="25" r="0.5" fill="white" opacity="0.5"/>
-  <circle cx="155" cy="20" r="1" fill="white" opacity="0.8"/>
-  <circle cx="180" cy="40" r="0.5" fill="white" opacity="0.6"/>
-  <circle cx="30" cy="90" r="0.5" fill="white" opacity="0.7"/>
-  <circle cx="60" cy="105" r="1" fill="white" opacity="0.6"/>
-  <circle cx="140" cy="100" r="0.5" fill="white" opacity="0.8"/>
-  <circle cx="170" cy="85" r="1" fill="white" opacity="0.5"/>
-  <circle cx="15" cy="60" r="0.5" fill="white" opacity="0.6"/>
-  <circle cx="185" cy="62" r="0.5" fill="white" opacity="0.7"/>
+  <!-- Right vortex -->
+  <circle cx="155" cy="62" r="30" fill="none" stroke="#111" stroke-width="2.5"/>
+  <g fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round">
+    <path d="M183,62 Q166,73 155,66"/>
+    <path d="M175,82 Q155,77 152,65"/>
+    <path d="M155,90 Q144,73 151,62"/>
+    <path d="M135,82 Q140,62 152,59"/>
+    <path d="M127,62 Q144,51 155,58"/>
+    <path d="M135,42 Q155,47 158,59"/>
+    <path d="M155,34 Q166,51 159,62"/>
+    <path d="M175,42 Q170,62 158,65"/>
+  </g>
+  <circle cx="155" cy="62" r="3" fill="#111"/>
 
-  <!-- Left wormhole spiral -->
-  <ellipse cx="70" cy="62" rx="45" ry="35" fill="url(#wormhole1)" opacity="0.9"/>
-  <ellipse cx="70" cy="62" rx="25" ry="20" fill="#000011" opacity="0.8"/>
-  <ellipse cx="70" cy="62" rx="10" ry="8" fill="#000" />
+  <!-- Tunnel: true horizontal tangent at top/bottom of each circle, pinched narrow at the waist -->
+  <path d="M45,32 C70,32 80,54 100,54 C120,54 130,32 155,32" fill="none" stroke="#111" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M45,92 C70,92 80,70 100,70 C120,70 130,92 155,92" fill="none" stroke="#111" stroke-width="2.5" stroke-linecap="round"/>
 
-  <!-- Right wormhole spiral -->
-  <ellipse cx="130" cy="62" rx="45" ry="35" fill="url(#wormhole2)" opacity="0.9"/>
-  <ellipse cx="130" cy="62" rx="25" ry="20" fill="#000011" opacity="0.8"/>
-  <ellipse cx="130" cy="62" rx="10" ry="8" fill="#000" />
+  <!-- Canted strokes inside the tunnel, 45 degrees upper-left to lower-right, centered on the wormhole's midpoint (100,62) -->
+  <g fill="none" stroke="#111" stroke-width="1.4" stroke-linecap="round">
+    <path d="M80,54 L96,70"/>
+    <path d="M92,54 L108,70"/>
+    <path d="M104,54 L120,70"/>
+  </g>
 
-  <!-- Connection beam between wormholes -->
-  <path d="M85 62 Q100 55 115 62 Q100 69 85 62" fill="#00CED1" opacity="0.4"/>
-  <path d="M90 62 Q100 58 110 62 Q100 66 90 62" fill="#FFD700" opacity="0.3"/>
+  <text x="100" y="30" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="bold" fill="#111" text-anchor="middle" letter-spacing="2">WORM</text>
+  <text x="100" y="100" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="bold" fill="#111" text-anchor="middle" letter-spacing="2">HOLE</text>
 </svg>
