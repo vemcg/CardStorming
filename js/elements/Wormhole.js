@@ -65,10 +65,10 @@ export class Wormhole extends DraggableElement {
         if (this.name) {
             const label = document.createElement('div');
             label.className = 'wormhole-label';
-            label.style.fontSize = '12px';
+            label.style.fontSize = '16px';
             label.style.fontWeight = 'bold';
-            label.style.color = '#fff';
-            label.style.textShadow = '0 0 4px rgba(0, 0, 0, 0.8)';
+            label.style.color = '#111';
+            label.style.textShadow = '0 0 3px rgba(255, 255, 255, 0.9), 0 0 3px rgba(255, 255, 255, 0.9)';
             label.style.marginTop = '4px';
             label.style.textAlign = 'center';
             label.style.maxWidth = '150px';

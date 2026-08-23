@@ -973,6 +973,36 @@ body {
     max-height: 80vh;
 }
 
+.howto-modal-content {
+    width: 90%;
+    max-width: 600px;
+    max-height: 80vh;
+    text-align: left;
+}
+
+.howto-content h3 {
+    margin: 18px 0 4px;
+    font-size: 1rem;
+    color: #2c3e50;
+}
+
+.howto-content h3:first-child {
+    margin-top: 0;
+}
+
+.howto-content p {
+    margin: 0 0 4px;
+    line-height: 1.5;
+    color: #333;
+}
+
+.howto-content ul {
+    margin: 4px 0 0;
+    padding-left: 20px;
+    line-height: 1.5;
+    color: #333;
+}
+
 .log-content {
     background-color: #1e1e1e;
     color: #d4d4d4;

@@ -995,6 +995,9 @@ function setupMenuHandlers() {
     const logModal = document.getElementById('log-modal');
     const logCloseBtn = document.getElementById('log-close');
     const logClearBtn = document.getElementById('log-clear');
+    const howtoMenuItem = document.getElementById('menu-howto');
+    const howtoModal = document.getElementById('howto-modal');
+    const howtoCloseBtn = document.getElementById('howto-close');
 
     // Populate the Open submenu on hover
     if (openMenuItem) {
@@ -1270,6 +1273,19 @@ function setupMenuHandlers() {
     if (logClearBtn) {
         logClearBtn.addEventListener('click', () => {
             debugLog.clear();
+        });
+    }
+
+    if (howtoMenuItem) {
+        howtoMenuItem.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (howtoModal) howtoModal.style.display = 'block';
+        });
+    }
+
+    if (howtoCloseBtn) {
+        howtoCloseBtn.addEventListener('click', () => {
+            if (howtoModal) howtoModal.style.display = 'none';
         });
     }
 }

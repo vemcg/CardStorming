@@ -49,6 +49,7 @@
             <div class="menu-item">
                 <button class="menu-button" data-tooltip="Help — debug log and app info">Help</button>
                 <div class="dropdown-content">
+                    <a href="#" id="menu-howto" data-tooltip="A walkthrough of the basics — cards, constellations, wormholes, and getting around">How to CardStorm</a>
                     <a href="#" id="menu-show-log" data-tooltip="Open the debug log to inspect events and troubleshoot issues">Show Log</a>
                     <a href="#" id="menu-about" data-tooltip="About CardStorming — version and credits">About</a>
                 </div>
@@ -190,6 +191,46 @@
             <div class="modal-buttons">
                 <button id="register-ok">Register</button>
                 <button id="register-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- How to CardStorm Dialog -->
+    <div id="howto-modal" class="modal">
+        <div class="modal-content howto-modal-content">
+            <h2>How to CardStorm</h2>
+            <div class="howto-content">
+                <h3>Getting started</h3>
+                <p>Create a new project from File → New, or open an existing one from File → Open. The first time you try to add or edit anything, you'll be asked to register a username and initials — after that, cards you create are tagged as yours.</p>
+
+                <h3>Adding a card</h3>
+                <p>Drag a card type from the palette on the right onto the workspace to drop a new card there. Don't have the type you want? Click the <strong>+</strong> button in the palette to define a new card type with its own name and color first.</p>
+
+                <h3>Moving a card</h3>
+                <p>Click and drag any card to reposition it.</p>
+
+                <h3>Selecting cards</h3>
+                <p>Click a card to select it. Ctrl/Cmd-click additional cards to build up a multi-selection. Press Delete or Backspace to remove whatever's selected.</p>
+
+                <h3>Editing a card</h3>
+                <p>Double-click a card to open it for editing — change the header or body text, then save. New cards you drag from the palette open straight into this view so you can fill them in right away.</p>
+
+                <h3>Building a constellation</h3>
+                <p>Drop cards close enough together and they'll link into a constellation — you'll see a shared grey shadow appear behind them. Drag a card itself to move just that card. Drag the shared shadow instead to move every card in the constellation together, keeping their layout intact. You can even drop the shadow onto a wormhole to send the whole constellation through at once.</p>
+
+                <h3>Covering long distances</h3>
+                <p>Dragging a card and need to drop it somewhere far away? Keep dragging toward any edge of the window and hold there for about a second — the view will gradually zoom out so more of the workspace comes into reach. Let go of the card where you want it, and the view zooms back in, centered on the new spot.</p>
+
+                <h3>Wormholes</h3>
+                <p>Drag the wormhole icon from the palette onto the workspace to place a linked pair of portals. From there:</p>
+                <ul>
+                    <li><strong>Drop a card (or a constellation's shadow) onto one end</strong> to teleport it straight to the other end.</li>
+                    <li><strong>Click an end</strong> to jump your view to its linked partner, wherever it is.</li>
+                    <li><strong>Double-click an end</strong> to rename it.</li>
+                </ul>
+            </div>
+            <div class="modal-buttons">
+                <button id="howto-close">Close</button>
             </div>
         </div>
     </div>
