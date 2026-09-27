@@ -21,6 +21,7 @@ export class ConstellationManager {
         // Configuration
         this.PROXIMITY_THRESHOLD = 250; // pixels
         this.UPDATE_DEBOUNCE_MS = 150; // ms
+        this.MIN_CARD_HEIGHT = 120; // matches Card min-height
         this.COLORS = [
             'rgba(255, 182, 193, 0.15)', // light pink
             'rgba(173, 216, 230, 0.15)', // light blue
@@ -33,6 +34,14 @@ export class ConstellationManager {
         ];
 
         this.createConstellationLayer();
+    }
+
+    /**
+     * Get a card's rendered height (cards grow to fit their content)
+     */
+    getCardHeight(cardId) {
+        const el = document.querySelector(`[data-id="${cardId}"]`);
+        return Math.max(el ? el.offsetHeight : 0, this.MIN_CARD_HEIGHT);
     }
 
     /**
@@ -72,23 +81,24 @@ export class ConstellationManager {
 
         // Card dimensions and shadow padding
         const cardWidth = 150;
-        const cardHeight = 120;
         const shadowPadding = 40;
 
         // Check if two shadow rectangles overlap
         const shadowsOverlap = (card1, card2) => {
+            const cardHeight1 = this.getCardHeight(card1.id);
+            const cardHeight2 = this.getCardHeight(card2.id);
             const rect1 = {
                 left: card1.x - shadowPadding,
                 right: card1.x + cardWidth + shadowPadding,
                 top: card1.y - shadowPadding,
-                bottom: card1.y + cardHeight + shadowPadding
+                bottom: card1.y + cardHeight1 + shadowPadding
             };
 
             const rect2 = {
                 left: card2.x - shadowPadding,
                 right: card2.x + cardWidth + shadowPadding,
                 top: card2.y - shadowPadding,
-                bottom: card2.y + cardHeight + shadowPadding
+                bottom: card2.y + cardHeight2 + shadowPadding
             };
 
             // Check if rectangles overlap
@@ -211,9 +221,9 @@ export class ConstellationManager {
 
             foundCards++;
 
-            // Card dimensions (approximate)
+            // Card dimensions
             const cardWidth = 150;
-            const cardHeight = 120;
+            const cardHeight = this.getCardHeight(cardId);
 
             minX = Math.min(minX, card.x);
             minY = Math.min(minY, card.y);
@@ -277,7 +287,7 @@ export class ConstellationManager {
 
                 // Card dimensions
                 const cardWidth = 150;
-                const cardHeight = 120;
+                const cardHeight = this.getCardHeight(cardId);
                 const shadowPadding = 40; // Padding around card for shadow
 
                 // Create shadow div - rectangular shadow slightly larger than card
@@ -463,12 +473,12 @@ export class ConstellationManager {
             if (window.appState && window.appState.wormholes) {
                 const wormholes = Array.from(window.appState.wormholes.values());
                 const cardWidth = 150;
-                const cardHeight = 120;
                 const shadowPadding = 40;
 
                 // Check each card's shadow rectangle against each wormhole
                 for (const cardId of cardIds) {
                     if (!window.appState.cards.has(cardId)) continue;
+                    const cardHeight = this.getCardHeight(cardId);
 
                     const card = window.appState.cards.get(cardId);
 

@@ -160,11 +160,14 @@
             <div id="identity-options" class="identity-options">
                 <!-- Radio buttons will be added dynamically -->
             </div>
-            <div id="identity-other-fields" class="identity-other-fields" style="display: none;">
-                <label for="identity-name">Name:</label>
-                <input type="text" id="identity-name" placeholder="Full Name">
-                <label for="identity-initials">Initials:</label>
-                <input type="text" id="identity-initials" placeholder="ABC" maxlength="4">
+            <div id="identity-other-fields" style="display: none;">
+                <p class="identity-prototype-note">Please note: CardStorm is a prototype built to demonstrate the user experience. It does not have enterprise-grade security, so please don't enter anything you would want to keep secret, including full names and email addresses.</p>
+                <div class="identity-other-fields">
+                    <label for="identity-name">Name:</label>
+                    <input type="text" id="identity-name" placeholder="Name">
+                    <label for="identity-initials">Initials:</label>
+                    <input type="text" id="identity-initials" placeholder="ABC" maxlength="4">
+                </div>
             </div>
             <div id="identity-error" class="identity-error" style="display: none;"></div>
             <div class="modal-buttons">
@@ -179,9 +182,10 @@
         <div class="modal-content">
             <h2>Register</h2>
             <p id="register-message">To continue, please register:</p>
+            <p class="identity-prototype-note">Please note: CardStorm is a prototype built to demonstrate the user experience. It does not have enterprise-grade security, so please don't enter anything you would want to keep secret, including your full name or a real email address. A made-up email address works fine.</p>
             <div class="register-fields">
                 <label for="register-email">Email:</label>
-                <input type="email" id="register-email" placeholder="your@email.com" required>
+                <input type="email" id="register-email" placeholder="made-up@example.com" required>
                 <label for="register-name">Username:</label>
                 <input type="text" id="register-name" placeholder="Username" required>
                 <label for="register-initials">Initials:</label>

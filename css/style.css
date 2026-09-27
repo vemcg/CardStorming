@@ -1106,6 +1106,12 @@ body {
     background-color: #f9f9f9;
 }
 
+.identity-prototype-note {
+    margin: 15px 0 0;
+    font-size: 13px;
+    color: #666;
+}
+
 .identity-other-fields label {
     display: block;
     margin-top: 10px;
