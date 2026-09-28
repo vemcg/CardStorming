@@ -25,6 +25,12 @@ let socket = null;
 let currentProjectId = null;
 let isProjectOpen = false;
 let currentUserInitials = '';
+
+// Initials to stamp on new cards. The auth identity is the source of truth (it's
+// restored from localStorage on reload); currentUserInitials is only a fallback.
+function getAuthorInitials() {
+    return auth.getCurrentIdentity()?.initials || currentUserInitials || '';
+}
 let wormholeZoomAnimationFrame = null; // Track wormhole drag zoom animation
 
 // Export to window for debugging and dialog access
@@ -2942,6 +2948,14 @@ function setupPaletteDropZone() {
                 return;
             }
 
+            // Never create a card without author initials
+            const authorInitials = getAuthorInitials();
+            if (!authorInitials) {
+                debugLog.error('Cannot create card: no identity initials available');
+                alert('Could not determine your initials. Please reload the page and select your identity, then try again.');
+                return;
+            }
+
             // Restore manual zoom FIRST (before coordinate conversion)
             viewportManager.restoreManualZoom();
 
@@ -2969,7 +2983,7 @@ function setupPaletteDropZone() {
                 '', // Start with blank header
                 '',
                 data.color,
-                currentUserInitials,
+                authorInitials,
                 1
             );
 
@@ -3122,7 +3136,7 @@ function setupSelectionAndKeyboard() {
             const newId = 'card-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
             const newX = cx + data.dx + OFFSET;
             const newY = cy + data.dy + OFFSET;
-            const card = new Card(newX, newY, newId, data.header, data.body, data.color, data.authorInitials, 1);
+            const card = new Card(newX, newY, newId, data.header, data.body, data.color, data.authorInitials || getAuthorInitials(), 1);
             const viewportContentEl2 = document.querySelector('.viewport-content');
             viewportContentEl2.appendChild(card.render(viewportManager));
             appState.addCard(card);
