@@ -75,6 +75,7 @@ export class Card extends DraggableElement {
         topRow.style.width = '100%';
 
         const headerDiv = document.createElement('div');
+        headerDiv.className = 'card-header-text';
         headerDiv.style.fontSize = '11px';
         headerDiv.style.fontWeight = 'bold';
         headerDiv.style.lineHeight = '1.2';
@@ -103,6 +104,7 @@ export class Card extends DraggableElement {
 
         // Body text
         const bodyDiv = document.createElement('div');
+        bodyDiv.className = 'card-body-text';
         bodyDiv.style.fontSize = '9px';
         bodyDiv.style.lineHeight = '1.4';
         bodyDiv.style.overflow = 'visible';
@@ -279,8 +281,8 @@ export class Card extends DraggableElement {
         this.element.dataset.body = body;
 
         // Update DOM
-        const headerDiv = this.element.querySelector('div:first-child');
-        const bodyDiv = this.element.querySelector('div:nth-child(2)');
+        const headerDiv = this.element.querySelector('.card-header-text');
+        const bodyDiv = this.element.querySelector('.card-body-text');
         if (headerDiv) headerDiv.textContent = header;
         if (bodyDiv) bodyDiv.textContent = body;
 
